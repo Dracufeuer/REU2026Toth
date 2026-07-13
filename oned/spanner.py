@@ -84,7 +84,7 @@ class OneDGraph:
         self.fig.canvas.draw_idle()
 
     def draw_1d_graph(self):
-        self.ax.clear()  # wipe previous drawing, but keep the same window
+        self.ax.clear()
 
         G = self.spanner
         pos = {n: (n, 0) for n in G.nodes()}
@@ -95,19 +95,37 @@ class OneDGraph:
 
         for u, v in G.edges():
             x1, x2 = pos[u][0], pos[v][0]
-            mid_x = (x1 + x2) / 2
-            height = abs(x2 - x1) * 0.3
+            if x1 == x2:
+                continue
 
-            verts = [(x1, 0), (mid_x, height), (x2, 0)]
-            codes = [Path.MOVETO, Path.CURVE3, Path.CURVE3]
-            path = Path(verts, codes)
+            center_x = (x1 + x2) / 2
+            diameter = abs(x2 - x1)
 
-            arc = patches.PathPatch(path, facecolor='none', edgecolor='gray', lw=1.5)
+            arc = patches.Arc(
+                (center_x, 0),
+                width=diameter,
+                height=diameter,
+                angle=0,
+                theta1=0,
+                theta2=180,
+                edgecolor='gray',
+                lw=1.5,
+            )
             self.ax.add_patch(arc)
 
         self.ax.axhline(0, color='black', linewidth=0.5, zorder=0)
+
+        nodes_x = [n for n in G.nodes()]
+        if nodes_x:
+            self.ax.set_xlim(min(nodes_x) - 1, max(nodes_x) + 1)
+
         if G.edges():
-            self.ax.set_ylim(-1, max(abs(u - v) for u, v in G.edges()) * 0.3 + 1)
+            max_span = max(abs(u - v) for u, v in G.edges())
+            self.ax.set_ylim(-1, max_span / 2 + 1)
+        else:
+            self.ax.set_ylim(-1, 1)
+
+        self.ax.set_aspect('equal', adjustable='box')  # <-- was 'datalim'
         self.ax.axis('off')
 
         self.fig.canvas.draw()
