@@ -1,4 +1,5 @@
 from oned.spanner import oned_loop
+from twod.spanner import twod_loop
 
 
 def main():
@@ -7,7 +8,7 @@ def main():
         if user_input == "1":
             oned_loop()
         elif user_input == "2":
-            main()
+            twod_loop()
 
         else: break
 

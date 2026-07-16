@@ -4,11 +4,10 @@ import matplotlib
 from networkx import Graph
 
 from spaner_common.plotting import GraphPlotter
+from spaner_common.stretch_factor import stretch_factor
 
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from matplotlib.path import Path
 import threading
 import queue
 
@@ -19,6 +18,7 @@ class OneDGraph:
         self.blue = sc.SortedSet()
         self.graphS = sc.SortedSet()
         self.plotter = GraphPlotter()
+        self.t = 0
 
     def add_node(self, node):
         idx = self.graphS.bisect_left(node)
@@ -41,6 +41,7 @@ class OneDGraph:
             self.red.add(node)
             self.spanner.add_node((node, 0), color='red')
         self.graphS.add(node)
+        self.t = stretch_factor(self.spanner)
 
 
     def connect_edge(self, node, color_set, color):
@@ -77,7 +78,7 @@ def oned_loop():
     while thread.is_alive():
         try:
             redraw_queue.get(timeout=0.1)  # wait briefly for a signal
-            my_graph.plotter.draw_graph(my_graph.spanner)
+            my_graph.plotter.draw_graph(my_graph.spanner, t=my_graph.t)
         except queue.Empty:
             pass
         plt.pause(0.05)

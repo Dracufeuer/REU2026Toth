@@ -38,18 +38,19 @@ class GraphPlotter:
 
         self.fig.canvas.draw_idle()
 
-    def draw_graph(self, G, half_circle=True):
+    def draw_graph(self, G, half_circle=True, t=None):
         self.ax.clear()
 
-        pos = {n: n for n in G.nodes()}  # node IS its own position now: (x, 0)
+        pos = {n: n for n in G.nodes()}
 
         node_colors = [G.nodes[n]['color'] for n in G.nodes()]
         nx.draw_networkx_nodes(G, pos, node_color=node_colors, ax=self.ax, node_size=300)
         nx.draw_networkx_labels(G, pos, ax=self.ax)
 
         for u, v in G.edges():
-            x1, x2 = u[0], v[0]
-            if x1 == x2:
+            x1, y1 = u[0], u[1]
+            x2, y2 = v[0], v[1]
+            if x1 == x2 and y1 == y2:
                 continue
 
             if half_circle:
@@ -68,22 +69,44 @@ class GraphPlotter:
                 )
                 self.ax.add_patch(arc)
             else:
-                self.ax.plot([x1, x2], [0, 0], color='gray', lw=1.5, zorder=1)
-
-        self.ax.axhline(0, color='black', linewidth=0.5, zorder=0)
+                self.ax.plot([x1, x2], [y1, y2], color='gray', lw=1.5, zorder=1)
 
         nodes_x = [n[0] for n in G.nodes()]
-        if nodes_x:
-            self.ax.set_xlim(min(nodes_x) - 1, max(nodes_x) + 1)
+        nodes_y = [n[1] for n in G.nodes()]
 
-        if half_circle and G.edges():
-            max_span = max(abs(u[0] - v[0]) for u, v in G.edges())
-            self.ax.set_ylim(-1, max_span / 2 + 1)
+        if half_circle:
+            self.ax.axhline(0, color='black', linewidth=0.5, zorder=0)
+            if nodes_x:
+                self.ax.set_xlim(min(nodes_x) - 1, max(nodes_x) + 1)
+            if G.edges():
+                max_span = max(abs(u[0] - v[0]) for u, v in G.edges())
+                self.ax.set_ylim(-1, max_span / 2 + 1)
+            else:
+                self.ax.set_ylim(-1, 1)
+            self.ax.axis('off')
         else:
-            self.ax.set_ylim(-1, 1)
+            if nodes_x and nodes_y:
+                self.ax.set_xlim(min(nodes_x) - 1, max(nodes_x) + 1)
+                self.ax.set_ylim(min(nodes_y) - 1, max(nodes_y) + 1)
+            else:
+                self.ax.set_xlim(-1, 1)
+                self.ax.set_ylim(-1, 1)
+
+            # coordinate-plane styling: axis lines through origin + light grid
+            self.ax.axhline(0, color='black', linewidth=0.8, zorder=0)
+            self.ax.axvline(0, color='black', linewidth=0.8, zorder=0)
+            self.ax.grid(True, linestyle='--', alpha=0.3, zorder=-1)
+            self.ax.set_axisbelow(True)  # keep grid/axis lines behind nodes and edges
 
         self.ax.set_aspect('equal', adjustable='box')
-        self.ax.axis('off')
+
+        if t is not None:
+            self.ax.text(
+                0.02, 0.95, f"t = {t:.4f}",
+                transform=self.ax.transAxes,
+                fontsize=11,
+                verticalalignment='top',
+            )
 
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
