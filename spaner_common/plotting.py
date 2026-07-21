@@ -42,10 +42,11 @@ class GraphPlotter:
         self.ax.clear()
 
         pos = {n: n for n in G.nodes()}
+        labels = {n: i for i, n in enumerate(G.nodes())}  # label = insertion order, not coordinates
 
         node_colors = [G.nodes[n]['color'] for n in G.nodes()]
         nx.draw_networkx_nodes(G, pos, node_color=node_colors, ax=self.ax, node_size=300)
-        nx.draw_networkx_labels(G, pos, ax=self.ax)
+        nx.draw_networkx_labels(G, pos, labels=labels, ax=self.ax)
 
         for u, v in G.edges():
             x1, y1 = u[0], u[1]
@@ -64,12 +65,12 @@ class GraphPlotter:
                     angle=0,
                     theta1=0,
                     theta2=180,
-                    edgecolor='gray',
+                    edgecolor='green',
                     lw=1.5,
                 )
                 self.ax.add_patch(arc)
             else:
-                self.ax.plot([x1, x2], [y1, y2], color='gray', lw=1.5, zorder=1)
+                self.ax.plot([x1, x2], [y1, y2], color='green', lw=1.5, zorder=1)
 
         nodes_x = [n[0] for n in G.nodes()]
         nodes_y = [n[1] for n in G.nodes()]
@@ -92,11 +93,10 @@ class GraphPlotter:
                 self.ax.set_xlim(-1, 1)
                 self.ax.set_ylim(-1, 1)
 
-            # coordinate-plane styling: axis lines through origin + light grid
             self.ax.axhline(0, color='black', linewidth=0.8, zorder=0)
             self.ax.axvline(0, color='black', linewidth=0.8, zorder=0)
             self.ax.grid(True, linestyle='--', alpha=0.3, zorder=-1)
-            self.ax.set_axisbelow(True)  # keep grid/axis lines behind nodes and edges
+            self.ax.set_axisbelow(True)
 
         self.ax.set_aspect('equal', adjustable='box')
 

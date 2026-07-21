@@ -41,7 +41,7 @@ class OneDGraph:
             self.red.add(node)
             self.spanner.add_node((node, 0), color='red')
         self.graphS.add(node)
-        self.t = stretch_factor(self.spanner)
+
 
 
     def connect_edge(self, node, color_set, color):
@@ -53,6 +53,13 @@ class OneDGraph:
             self.spanner.add_edge((node,0), (left_idx, 0), weight=abs(node - left_idx))
         if right_idx is not None:
             self.spanner.add_edge((node,0), (right_idx, 0), weight=abs(node - right_idx))
+def oned_list(points):
+    my_graph = OneDGraph()
+    for point in points:
+        my_graph.add_node(point)
+    my_graph.t = stretch_factor(my_graph.spanner)
+    my_graph.plotter.draw_graph(my_graph.spanner, half_circle=True, t=my_graph.t)
+    plt.show(block=True)
 
 def oned_loop():
     my_graph = OneDGraph()
@@ -67,6 +74,7 @@ def oned_loop():
                     print('node already exists')
                 else:
                     my_graph.add_node(node)  # safe: no GUI calls here
+                    my_graph.t = stretch_factor(my_graph.spanner)
                     redraw_queue.put(True)  # just signal main thread to redraw
             except ValueError:
                 print("not a number")

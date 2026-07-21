@@ -59,6 +59,13 @@ class TwoDGraph:
         (self.red if color == 'red' else self.blue).add(node)
         self.graphS.add(node)
 
+def twod_list(points):
+    my_graph = TwoDGraph()
+    for point in points:
+        my_graph.add_node(point)
+    my_graph.t = stretch_factor(my_graph.spanner)
+    my_graph.plotter.draw_graph(my_graph.spanner, half_circle=False, t=my_graph.t)
+    plt.show(block=True)
 
 def twod_loop():
     my_graph = TwoDGraph()
@@ -83,6 +90,7 @@ def twod_loop():
                 my_graph.add_node(node)
                 my_graph.t = stretch_factor(my_graph.spanner)
                 redraw_queue.put(True)
+
 
     thread = threading.Thread(target=input_loop, daemon=True)
     thread.start()
