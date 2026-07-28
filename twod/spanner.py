@@ -41,20 +41,44 @@ class TwoDGraph:
 
         self.spanner.add_node(node, color=color)
 
-        opposite = self.blue if color == 'red' else self.red
-
-        buckets = [None] * NUM_CONES
+        #opposite, current = self.blue, self.red if color == 'red' else self.red, self.blue
+        if color =='red':
+            current, opposite = self.red, self.blue
+        else:
+            current, opposite = self.blue, self.red
+        opp_buckets = [None] * NUM_CONES
+        curr_buckets = [None] * NUM_CONES
+        edges_added = 0
+        curr_edges = 0
+        not_entered = 0
 
         for q in opposite:
             i = cone_index(node[0], node[1], q[0], q[1])
             dist = distance.euclidean(node, q)
-            if buckets[i] is None or dist < buckets[i][0]:
-                buckets[i] = (dist, q)
+            if opp_buckets[i] is None or dist < opp_buckets[i][0]:
+                opp_buckets[i] = (dist, q)
 
-        for entry in buckets:
+        for entry in opp_buckets:
             if entry is not None:
                 _, q = entry
                 self.spanner.add_edge(node, q, weight=distance.euclidean(node, q))
+                edges_added += 1
+
+        for q in current:
+            i = cone_index(node[0], node[1], q[0], q[1])
+            dist = distance.euclidean(node, q)
+            if curr_buckets[i] is None or dist < curr_buckets[i][0]:
+                curr_buckets[i] = (dist, q)
+
+        for entry in curr_buckets:
+            if entry is not None:
+                _, q = entry
+                not_entered += 1
+                if not self.spanner.has_edge(nearest, q):
+                    curr_edges += 1
+                    self.spanner.add_edge(nearest, q, weight=distance.euclidean(nearest, q))
+                    edges_added += 1
+        print(f"edges added: {edges_added} curr_edges added: {curr_edges} entered: {not_entered}")
 
         (self.red if color == 'red' else self.blue).add(node)
         self.graphS.add(node)
