@@ -45,13 +45,13 @@ class RangeTree:
         return root
     def add_node(self, point):
         trans_point = transform(point, self.theta, self.cone_i)
-        self.node_list.append((trans_point[0], trans_point[1], point[0], point[1]))
+        self.node_list.add((trans_point[0], trans_point[1], point[0], point[1]))
         self.tree = self.build(self.node_list)
 
-    def query(self, u0, v0):
+    def query(self, original_point):
         smallest = None # This is used for the first quadrant cone best point
         biggest = None # This is used for the third quadrant cone best point
-
+        u0, v0 = transform(original_point, self.theta, self.cone_i)
         def recurse(node):
             nonlocal smallest
             nonlocal biggest
@@ -66,7 +66,7 @@ class RangeTree:
                 if node.point[1] >= v0:
                     smallest = consider(node.point, smallest, lambda a, b: a > b)
                 if node.right is not None:
-                    sl_left = node.right.secondary.bisect_left(v0)
+                    sl_left = node.right.secondary.bisect_key_left(v0)
                     smallest = consider(min(islice(node.right.secondary, sl_left, None),
                                  key=lambda p: p[0] + p[1],
                                  default=None), smallest, lambda a, b: a > b)
@@ -77,7 +77,7 @@ class RangeTree:
                 if node.point[1] <= v0:
                     biggest = consider(node.point, biggest, lambda a, b: a < b)
                 if node.left is not None:
-                    sl_right = node.left.secondary.bisect_right(v0)
+                    sl_right = node.left.secondary.bisect_key_right(v0)
                     biggest = consider(max(islice(node.left.secondary, 0, sl_right),
                                            key=lambda p: p[0] + p[1],
                                           default=None), biggest, lambda a, b: a < b)
@@ -88,14 +88,17 @@ class RangeTree:
             # we do not include u == u0 since that is on the counter-clockwise wall.
             else:
                 if node.right is not None:
-                    sl_left = node.right.secondary.bisect_left(v0)
+                    sl_left = node.right.secondary.bisect_key_left(v0)
                     smallest = consider(min(islice(node.right.secondary, sl_left, None),
                                             key=lambda p: p[0] + p[1],
                                             default=None), smallest, lambda a, b: a > b)
                 if node.left is not None:
-                    sl_right = node.left.secondary.bisect_right(v0)
+                    sl_right = node.left.secondary.bisect_key_right(v0)
                     biggest = consider(max(islice(node.left.secondary, 0, sl_right),
                                            key=lambda p: p[0] + p[1],
                                            default=None), biggest, lambda a, b: a < b)
         recurse(self.tree)
-        return smallest, biggest
+        return (
+        (smallest[2], smallest[3]) if smallest is not None else None,
+        (biggest[2], biggest[3]) if biggest is not None else None
+        )

@@ -5,13 +5,14 @@ from scipy.spatial import distance
 
 from spaner_common.plotting import GraphPlotter
 from spaner_common.stretch_factor import stretch_factor
+from twod.range_tree import RangeTree
 
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import threading
 import queue
 
-NUM_CONES = 12
+NUM_CONES = 12 # NEEDS to be an even number
 CONE_WIDTH = 2 * math.pi / NUM_CONES
 
 
@@ -30,6 +31,85 @@ class TwoDGraph:
         self.graphS = set()
         self.plotter = GraphPlotter()
         self.t = 0
+
+        self.blue_trees = [
+            RangeTree(cone_i = i, theta=CONE_WIDTH)
+            for i in range(int(NUM_CONES/2))
+        ]
+        self.red_trees = [
+            RangeTree(cone_i = i, theta=CONE_WIDTH)
+            for i in range(int(NUM_CONES/2))
+        ]
+    def add_node_trees(self, point):
+        opposite_color = []
+        same_color = []
+        nearest_point = None
+        if not self.spanner:
+            color = 'red'
+            for tree in self.red_trees:
+                tree.add_node(point)
+        else:
+            red_nearest = [
+                node
+                for tree in self.red_trees
+                for node in tree.query(point)
+                if node is not None
+            ]
+            if red_nearest:
+                red_nearest_point = min(red_nearest,
+                                        key=lambda p : distance.euclidean(point, p)
+                                        )
+            else:
+                red_nearest_point = None
+
+
+            blue_nearest = [
+                node
+                for tree in self.blue_trees
+                for node in tree.query(point)
+                if node is not None
+            ]
+            if blue_nearest:
+                blue_nearest_point = min(blue_nearest,
+                                        key=lambda p : distance.euclidean(point, p)
+                                        )
+            else:
+                blue_nearest_point = None
+
+            # this is to find which is the nearest point of the colors to
+            # decide the color of our point
+            if red_nearest_point is not None:
+                red_dis = distance.euclidean(point, red_nearest_point)
+            else:
+                red_dis = math.inf
+
+            if blue_nearest_point is not None:
+                blue_dis = distance.euclidean(point, blue_nearest_point)
+            else:
+                blue_dis = math.inf
+
+            if red_dis < blue_dis:
+                color = 'blue'
+                opposite_color, same_color = red_nearest, blue_nearest
+                nearest_point = red_nearest_point
+                for tree in self.blue_trees:
+                    tree.add_node(point)
+            else:
+                color = 'red'
+                opposite_color, same_color = blue_nearest, red_nearest
+                nearest_point = blue_nearest_point
+                for tree in self.red_trees:
+                    tree.add_node(point)
+
+        self.spanner.add_node(point, color=color)
+
+        for q in opposite_color:
+            self.spanner.add_edge(point, q, weight=distance.euclidean(point, q))
+
+        for q in same_color:
+            if not self.spanner.has_edge(nearest_point, q):
+                self.spanner.add_edge(nearest_point, q, weight=distance.euclidean(nearest_point, q))
+        #self.graphS.add(point)
 
     def add_node(self, node):
         if not self.graphS:
@@ -86,7 +166,7 @@ class TwoDGraph:
 def twod_list(points):
     my_graph = TwoDGraph()
     for point in points:
-        my_graph.add_node(point)
+        my_graph.add_node_trees(point)
     my_graph.t = stretch_factor(my_graph.spanner)
     my_graph.plotter.draw_graph(my_graph.spanner, half_circle=False, t=my_graph.t)
     plt.show(block=True)
@@ -111,7 +191,7 @@ def twod_loop():
             if node in my_graph.graphS:
                 print('node already exists')
             else:
-                my_graph.add_node(node)
+                my_graph.add_node_trees(node)
                 my_graph.t = stretch_factor(my_graph.spanner)
                 redraw_queue.put(True)
 
