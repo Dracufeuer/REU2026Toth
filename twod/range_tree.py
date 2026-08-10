@@ -12,18 +12,58 @@ def transform(point, theta, cone_i):
     return u, v
 
 class Node:
-    __slots__ = ['u', 'point', 'secondary', 'left', 'right']
-    def __init__(self, point, secondary, left=None, right=None):
-        self.point = point #  (u,v,x,y)
-        self.secondary = secondary # stores (u,v,x,y) pairs of the children and self below
+    __slots__ = [ 'point', 'secondary', 'left', 'right', 'parent', 'balance']
+    def __init__(self, point, secondary, left=None, right=None, parent=None):
+        self.point = point #  (u,v,x,y) TODO Change it to (u,v, point_index)
+        self.secondary = secondary # stores the root of the tree of InnerNode's
         self.left = left
         self.right = right
+        self.parent = parent
+        self.balance = 0
+
+class InnerNode:
+    __slots__ = ['point', 'biggest', 'smallest', 'left', 'right', 'parent', 'balance']
+    def __init__(self, point, left=None, right=None, parent=None):
+        self.point = point #  (u,v,x,y) TODO Change it to (u,v, point_index)
+        self.biggest = (point[0] + point[1], self.point[3]) # (u+v, point_index)
+        self.smallest = (point[0] + point[1], self.point[3]) # (u+v, point_index)
+        self.left = left
+        self.right = right
+        self.parent = parent
+        self.balance = 0
 
 
-def consider(candidate, best, formula):
-    if candidate is not None and (best is None or formula(best[0] + best[1], candidate[0] + candidate[1])):
+def consider(candidate, best, compare):
+    if candidate is not None and (best is None or compare(best[0] + best[1], candidate[0] + candidate[1])):
         return candidate
     return best
+
+
+def add_inner_node(root, node):
+    while root is not None:
+        #This is to update the parents and grandparents of the newly inserted node
+        if root.biggest < node.biggest:
+            root.biggest = node.biggest
+        if root.smallest > node.smallest:
+            root.smallest = node.smallest
+
+
+        if node.point[1] >= root.point[1]:
+            if root.right is not None:
+                root = root.right
+            else:
+                #TODO: back propagate the updates to balance
+                node.parent = root
+                root.right = node
+                root = None
+        else:
+            if root.left is not None:
+                root = root.left
+            else:
+                #TODO: back propagate the updates to balance
+                node.parent = root
+                root.left = node
+                root = None
 
 
 class RangeTree:
@@ -33,6 +73,8 @@ class RangeTree:
         self.theta = theta
         self.tree = self.build(self.node_list)
 
+
+    #TODO: plan to deprecate build
     def build(self, arr):
         if not arr:
             return None
@@ -43,10 +85,34 @@ class RangeTree:
         root.right = self.build(arr[mid+1:])
 
         return root
-    def add_node(self, point):
-        trans_point = transform(point, self.theta, self.cone_i)
-        self.node_list.add((trans_point[0], trans_point[1], point[0], point[1]))
+
+    def add_node(self, normal_point, point_index):
+        trans_point = transform(normal_point, self.theta, self.cone_i)
+        self.node_list.add((trans_point[0], trans_point[1], normal_point[0], normal_point[1]))
         self.tree = self.build(self.node_list)
+
+        # TODO: WE REALLY NEED TO CHANGE THIS TO (trans_point[0], trans_point[1], point_index)
+        point = (trans_point[0], trans_point[1], point_index)
+        root = self.tree
+        y_node = InnerNode(point)
+        while root is not None:
+            add_inner_node(root.seconary, y_node)
+
+            if point[0] >= root.point[0]:
+                if root.right is not None:
+                    root = root.right
+
+                else:
+                    #TODO: back propagate the updates to balance
+                    root.right = Node(point, y_node, parent=root)
+                    root = None
+            else:
+                if root.left is not None:
+                    root = root.left
+                else:
+                    #TODO: back propagate the updates to balance
+                    root.left = Node(point, y_node, parent=root)
+                    root = None
 
     def query(self, original_point):
         smallest = None # This is used for the first quadrant cone best point

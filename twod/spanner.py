@@ -26,9 +26,9 @@ def cone_index(px, py, qx, qy):
 class TwoDGraph:
     def __init__(self):
         self.spanner = nx.Graph()
-        self.red = set()
-        self.blue = set()
-        self.graphS = set()
+        self.red = set() # deprecated with range trees
+        self.blue = set() # deprecated with range trees
+        self.graphS = set() # deprecated with range trees
         self.plotter = GraphPlotter()
         self.t = 0
 
@@ -40,6 +40,7 @@ class TwoDGraph:
             RangeTree(cone_i = i, theta=CONE_WIDTH)
             for i in range(int(NUM_CONES/2))
         ]
+
     def add_node_trees(self, point):
         opposite_color = []
         same_color = []
@@ -112,6 +113,8 @@ class TwoDGraph:
         #self.graphS.add(point)
 
     def add_node(self, node):
+        current = []
+        opposite = []
         if not self.graphS:
             color = 'red'
         else:
@@ -188,7 +191,7 @@ def twod_loop():
                 continue
 
             node = (x, y)
-            if node in my_graph.graphS:
+            if my_graph.spanner.has_node(node):
                 print('node already exists')
             else:
                 my_graph.add_node_trees(node)
