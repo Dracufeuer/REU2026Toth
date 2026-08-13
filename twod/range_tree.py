@@ -33,8 +33,8 @@ class InnerNode:
         self.balance = 0
 
 
-def consider(candidate, best, compare):
-    if candidate is not None and (best is None or compare(best[0] + best[1], candidate[0] + candidate[1])):
+def consider(candidate, best, condition):
+    if candidate is not None and (best is None or condition(candidate[0] , best[0])):
         return candidate
     return best
 
@@ -85,6 +85,27 @@ class RangeTree:
         root.right = self.build(arr[mid+1:])
 
         return root
+    def backprop_insert(self, root, child):
+        if root is None:
+            return
+
+        if root.right == child:
+            root.balance -= 1
+        else:
+            root.balance += 1
+
+        if root.balance == 0:
+            return
+        elif root.balance > 1:
+            # TODO: rotation occurs (left heavy)
+            return
+        elif root.balance < -1:
+            # TODO: rotation occurs (right heavy)
+            return
+
+        self.backprop_insert(root.parent, root)
+
+    
 
     def add_node(self, normal_point, point_index):
         trans_point = transform(normal_point, self.theta, self.cone_i)
@@ -96,7 +117,7 @@ class RangeTree:
         root = self.tree
         y_node = InnerNode(point)
         while root is not None:
-            add_inner_node(root.seconary, y_node)
+            add_inner_node(root.secondary, y_node)
 
             if point[0] >= root.point[0]:
                 if root.right is not None:
@@ -104,15 +125,109 @@ class RangeTree:
 
                 else:
                     #TODO: back propagate the updates to balance
+                    root.balance -= 1
                     root.right = Node(point, y_node, parent=root)
                     root = None
+
             else:
                 if root.left is not None:
                     root = root.left
                 else:
                     #TODO: back propagate the updates to balance
+                    root.balance += 1
                     root.left = Node(point, y_node, parent=root)
                     root = None
+
+
+    def new_query(self, query_point):
+        u0, v0 = transform(query_point, self.theta, self.cone_i)
+        smallest = None
+        biggest = None
+
+        greater = lambda a, b: a > b
+        lesser = lambda a, b: a < b
+        def recurse(node):
+            nonlocal smallest
+            nonlocal biggest
+
+            if node is None:
+                return
+
+            if node.point[0] > u0:
+                if node.point[1] >= v0:
+                    smallest = consider((node.point[0] + node.point[1], node.point[3]), smallest, lesser)
+                if node.right is not None:
+                    temp, _ = inner_recurse(node.right.secondary, greater)
+                    smallest = consider(temp, smallest, lesser)
+                recurse(node.left)
+
+            elif node.point[0] < u0:
+                if node.point[1] <= v0:
+                    biggest = consider((node.point[0] + node.point[1], node.point[3]), biggest, greater)
+                if node.left is not None:
+                    _, temp = inner_recurse(node.left.secondary, lesser)
+                    biggest = consider(temp, biggest, greater)
+                recurse(node.right)
+
+            else:
+                if node.right is not None:
+                    recurse(node.right)
+                if node.left is not None:
+                    recurse(node.left)
+
+
+
+        def inner_recurse(node, condition):
+
+            if node is None:
+                return None, None
+
+            best_small = None
+            best_big = None
+
+            if condition == greater:
+                child = node.right
+                opp_child = node.left
+            else:
+                child = node.left
+                opp_child = node.right
+
+            bisect = (node.point[0] + node.point[1], node.point[3])
+            if condition(node.point[1], v0):
+                best_small = consider(bisect, best_small, lesser)
+                best_big = consider(bisect, best_big, greater)
+                if child is not None:
+                    best_small = consider(child.smallest, best_small, lesser)
+                    best_big = consider(child.biggest, best_big, greater)
+                if opp_child is not None:
+                    temp_small, temp_big = inner_recurse(opp_child, condition)
+                    best_small = consider(temp_small, best_small, lesser)
+                    best_big = consider(temp_big, best_big, greater)
+            elif node.point[1] == v0:
+                best_small = consider(bisect, best_small, lesser)
+                best_big = consider(bisect, best_big, greater)
+
+                if child is not None:
+                    best_small = consider(child.smallest, best_small, lesser)
+                    best_big = consider(child.biggest, best_big, greater)
+                if opp_child is not None:
+                    temp_small, temp_big = inner_recurse(opp_child, condition)
+                    best_small = consider(temp_small, best_small, lesser)
+                    best_big = consider(temp_big, best_big, greater)
+            else:
+                temp_small, temp_big = inner_recurse(child, condition)
+                best_small = consider(temp_small, best_small, lesser)
+                best_big = consider(temp_big, best_big, greater)
+
+            return best_small, best_big
+
+        recurse(self.tree)
+        return (
+            (abs(smallest[0] - (u0 + v0)), smallest[1]) if smallest is not None else None,
+            (abs(biggest[0] - (u0 + v0)), biggest[1]) if biggest is not None else None
+        )
+
+
 
     def query(self, original_point):
         smallest = None # This is used for the first quadrant cone best point
