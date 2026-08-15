@@ -25,12 +25,176 @@ class InnerNode:
     __slots__ = ['point', 'biggest', 'smallest', 'left', 'right', 'parent', 'balance']
     def __init__(self, point, left=None, right=None, parent=None):
         self.point = point #  (u,v,x,y) TODO Change it to (u,v, point_index)
-        self.biggest = (point[0] + point[1], self.point[3]) # (u+v, point_index)
-        self.smallest = (point[0] + point[1], self.point[3]) # (u+v, point_index)
+        self.biggest = (point[0] + point[1], point[2]) # (u+v, point_index)
+        self.smallest = (point[0] + point[1], point[2]) # (u+v, point_index)
         self.left = left
         self.right = right
         self.parent = parent
         self.balance = 0
+
+    def new_smallest_biggest(self, node):
+        node_bisect_distance = (node.point[0] + node.point[1], node.point[2])
+        node.smallest, node.biggest = node_bisect_distance, node_bisect_distance
+
+        # fixes node's inner structure
+        if node.left is not None:
+            if node.biggest < node.left.biggest:
+                node.biggest = node.left.biggest
+            if node.smallest > node.left.smallest:
+                node.smallest = node.left.smallest
+
+        if node.right is not None:
+            if node.biggest < node.right.biggest:
+                node.biggest = node.right.biggest
+            if node.smallest > node.right.smallest:
+                node.smallest = node.right.smallest
+
+    def rotation(self, node, child):
+        root = None
+        if node.balance > 1:
+            # (LL) rotation
+            if node.left.balance >= 0:
+                if node.parent is not None:
+                    if node.parent.left is node:
+                        node.parent.left = child
+                    else:
+                        node.parent.right = child
+                else:
+                    root = child
+
+                middle = child.right
+                child.parent, child.right, node.parent, node.left = \
+                    node.parent, node, child, child.right
+
+                if middle is not None:
+                    middle.parent = node
+
+                child.smallest = node.smallest
+                child.biggest = node.biggest
+
+                self.new_smallest_biggest(node)
+                child.balance = 0
+                node.balance = 0
+
+            # (LR) rotation
+            else:
+                middle = child.right
+                if node.parent is not None:
+                    if node.parent.left is node:
+                        node.parent.left = middle
+                    else:
+                        node.parent.right = middle
+                else:
+                    root = middle
+
+                middle.parent = node.parent
+
+                child.right = middle.left
+                if middle.left is not None:
+                    middle.left.parent = child
+
+                node.left = middle.right
+                if middle.right is not None:
+                    middle.right.parent = node
+
+                middle.left = child
+                middle.right = node
+
+                child.parent = middle
+                node.parent = middle
+
+                old_middle_balance = middle.balance
+
+                middle.smallest = node.smallest
+                middle.biggest = node.biggest
+
+                self.new_smallest_biggest(node)
+                self.new_smallest_biggest(child)
+
+                if old_middle_balance == 0:
+                    child.balance = 0
+                    node.balance = 0
+                elif old_middle_balance > 0:  # middle's left subtree was taller
+                    child.balance = 0
+                    node.balance = -1
+                else:  # middle's right subtree was taller
+                    child.balance = 1
+                    node.balance = 0
+                middle.balance = 0
+
+
+        elif node.balance < -1:
+            # (RR) rotation
+            if node.right.balance <= 0:
+                middle = child.left
+                if node.parent is not None:
+                    if node.parent.left is node:
+                        node.parent.left = child
+                    else:
+                        node.parent.right = child
+                else:
+                    root = child
+
+
+                child.parent, child.left, node.parent, node.right = \
+                    node.parent, node, child, child.left
+
+                if middle is not None:
+                    middle.parent = node
+
+                child.smallest = node.smallest
+                child.biggest = node.biggest
+
+                self.new_smallest_biggest(node)
+                child.balance = 0
+                node.balance = 0
+
+            # (RL) rotation
+            else:
+                middle = child.left
+                if node.parent is not None:
+                    if node.parent.left is node:
+                        node.parent.left = middle
+                    else:
+                        node.parent.right = middle
+                else:
+                    root = middle
+
+                middle.parent = node.parent
+
+                child.left = middle.right
+                if middle.right is not None:
+                    middle.right.parent = child
+
+                node.right = middle.left
+                if middle.left is not None:
+                    middle.left.parent = node
+
+                middle.right = child
+                middle.left = node
+
+                child.parent = middle
+                node.parent = middle
+
+                old_middle_balance = middle.balance
+
+                middle.smallest = node.smallest
+                middle.biggest = node.biggest
+
+                self.new_smallest_biggest(node)
+                self.new_smallest_biggest(child)
+
+                if old_middle_balance == 0:
+                    child.balance = 0
+                    node.balance = 0
+                elif old_middle_balance > 0:  # middle's left subtree was taller
+                    child.balance = -1
+                    node.balance = 0
+                else:  # middle's right subtree was taller
+                    child.balance = 0
+                    node.balance = 1
+                middle.balance = 0
+        return root
 
 
 def consider(candidate, best, condition):
@@ -39,31 +203,31 @@ def consider(candidate, best, condition):
     return best
 
 
-def add_inner_node(root, node):
-    while root is not None:
+def add_inner_node(node, new_node):
+    while node is not None:
         #This is to update the parents and grandparents of the newly inserted node
-        if root.biggest < node.biggest:
-            root.biggest = node.biggest
-        if root.smallest > node.smallest:
-            root.smallest = node.smallest
+        if node.biggest < new_node.biggest:
+            node.biggest = new_node.biggest
+        if node.smallest > new_node.smallest:
+            node.smallest = new_node.smallest
 
 
-        if node.point[1] >= root.point[1]:
-            if root.right is not None:
-                root = root.right
+        if new_node.point[1] >= node.point[1]:
+            if node.right is not None:
+                node = node.right
             else:
                 #TODO: back propagate the updates to balance
-                node.parent = root
-                root.right = node
-                root = None
+                new_node.parent = node
+                node.right = new_node
+                return
         else:
-            if root.left is not None:
-                root = root.left
+            if node.left is not None:
+                node = node.left
             else:
                 #TODO: back propagate the updates to balance
-                node.parent = root
-                root.left = node
-                root = None
+                new_node.parent = node
+                node.left = new_node
+                return
 
 
 class RangeTree:
@@ -85,58 +249,64 @@ class RangeTree:
         root.right = self.build(arr[mid+1:])
 
         return root
-    def backprop_insert(self, root, child):
-        if root is None:
-            return
 
-        if root.right == child:
-            root.balance -= 1
+    def backprop_insert(self, node, child, root):
+        if node is None:
+            return root
+
+        if node.right == child:
+            node.balance -= 1
         else:
-            root.balance += 1
+            node.balance += 1
 
-        if root.balance == 0:
-            return
-        elif root.balance > 1:
-            # TODO: rotation occurs (left heavy)
-            return
-        elif root.balance < -1:
-            # TODO: rotation occurs (right heavy)
-            return
-
-        self.backprop_insert(root.parent, root)
+        if node.balance == 0:
+            return root
+        if node.balance > 1 or node.balance < -1:
+            new_root = root.rotation(node, child)
+            if new_root is not None:
+                root = new_root
+            return root
+        return self.backprop_insert(node.parent, node, root)
 
     
 
     def add_node(self, normal_point, point_index):
+        # IGNORE THESE 3 LINES WILL GET RID OF. IT IS DEPRECATED AND OLD
         trans_point = transform(normal_point, self.theta, self.cone_i)
         self.node_list.add((trans_point[0], trans_point[1], normal_point[0], normal_point[1]))
         self.tree = self.build(self.node_list)
 
         # TODO: WE REALLY NEED TO CHANGE THIS TO (trans_point[0], trans_point[1], point_index)
+        trans_point = transform(normal_point, self.theta, self.cone_i)
         point = (trans_point[0], trans_point[1], point_index)
-        root = self.tree
-        y_node = InnerNode(point)
-        while root is not None:
-            add_inner_node(root.secondary, y_node)
 
-            if point[0] >= root.point[0]:
-                if root.right is not None:
-                    root = root.right
+        if self.tree is None:
+            self.tree = Node(point, InnerNode(point), parent=None)
+            return
+
+        node = self.tree
+        while node is not None:
+
+            add_inner_node(node.secondary, InnerNode(point))
+
+            if point[0] >= node.point[0]:
+                if node.right is not None:
+                    node = node.right
 
                 else:
-                    #TODO: back propagate the updates to balance
-                    root.balance -= 1
-                    root.right = Node(point, y_node, parent=root)
-                    root = None
+                    node.right = Node(point, InnerNode(point), parent=node)
+                    self.tree = self.backprop_insert(node, node.right, self.tree)
+                    return
 
             else:
-                if root.left is not None:
-                    root = root.left
+                if node.left is not None:
+                    node = node.left
                 else:
-                    #TODO: back propagate the updates to balance
-                    root.balance += 1
-                    root.left = Node(point, y_node, parent=root)
-                    root = None
+                    node.left = Node(point, InnerNode(point), parent=node)
+                    self.tree = self.backprop_insert(node, node.left, self.tree)
+                    return
+
+
 
 
     def new_query(self, query_point):
