@@ -59,6 +59,7 @@ def oned_list(points):
         my_graph.add_node(point)
     my_graph.t = stretch_factor(my_graph.spanner)
     my_graph.plotter.draw_graph(my_graph.spanner, half_circle=True, t=my_graph.t)
+    my_graph.plotter.export_graph(my_graph.spanner, "spanner_output.pdf", half_circle=True, t=my_graph.t)
     plt.show(block=True)
 
 def oned_loop():
@@ -90,3 +91,6 @@ def oned_loop():
         except queue.Empty:
             pass
         plt.pause(0.05)
+    my_graph.plotter.export_graph(my_graph.spanner, "spanner_output.pdf", half_circle=True, t=my_graph.t)
+
+

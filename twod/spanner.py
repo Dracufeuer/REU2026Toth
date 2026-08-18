@@ -26,9 +26,7 @@ def cone_index(px, py, qx, qy):
 class TwoDGraph:
     def __init__(self):
         self.spanner = nx.Graph()
-        self.red = set() # deprecated with range trees
-        self.blue = set() # deprecated with range trees
-        self.graphS = set() # deprecated with range trees
+        self.points = []
         self.plotter = GraphPlotter()
         self.t = 0
 
@@ -42,13 +40,15 @@ class TwoDGraph:
         ]
 
     def add_node_trees(self, point):
+        self.points.append(point)
+        point_index = len(self.points) - 1
         opposite_color = []
         same_color = []
         nearest_point = None
         if not self.spanner:
             color = 'red'
             for tree in self.red_trees:
-                tree.add_node(point)
+                tree.add_node(point, point_index)
         else:
             red_nearest = [
                 node
@@ -58,8 +58,9 @@ class TwoDGraph:
             ]
             if red_nearest:
                 red_nearest_point = min(red_nearest,
-                                        key=lambda p : distance.euclidean(point, p)
+                                        key=lambda p : p[0]
                                         )
+
             else:
                 red_nearest_point = None
 
@@ -72,99 +73,50 @@ class TwoDGraph:
             ]
             if blue_nearest:
                 blue_nearest_point = min(blue_nearest,
-                                        key=lambda p : distance.euclidean(point, p)
+                                        key=lambda p : p[0]
                                         )
+
             else:
                 blue_nearest_point = None
 
-            # this is to find which is the nearest point of the colors to
-            # decide the color of our point
-            if red_nearest_point is not None:
-                red_dis = distance.euclidean(point, red_nearest_point)
-            else:
-                red_dis = math.inf
-
-            if blue_nearest_point is not None:
-                blue_dis = distance.euclidean(point, blue_nearest_point)
-            else:
-                blue_dis = math.inf
-
-            if red_dis < blue_dis:
-                color = 'blue'
-                opposite_color, same_color = red_nearest, blue_nearest
-                nearest_point = red_nearest_point
-                for tree in self.blue_trees:
-                    tree.add_node(point)
-            else:
+            if red_nearest_point is not None and blue_nearest_point is not None:
+                if red_nearest_point[0] < blue_nearest_point[0]:
+                    color = 'blue'
+                    opposite_color, same_color = red_nearest, blue_nearest
+                    nearest_point = self.points[red_nearest_point[1]]
+                    for tree in self.blue_trees:
+                        tree.add_node(point, point_index)
+                else:
+                    color = 'red'
+                    opposite_color, same_color = blue_nearest, red_nearest
+                    nearest_point = self.points[blue_nearest_point[1]]
+                    for tree in self.red_trees:
+                        tree.add_node(point, point_index)
+            elif red_nearest_point is None:
                 color = 'red'
                 opposite_color, same_color = blue_nearest, red_nearest
-                nearest_point = blue_nearest_point
+                nearest_point = self.points[blue_nearest_point[1]]
                 for tree in self.red_trees:
-                    tree.add_node(point)
+                    tree.add_node(point, point_index)
+            else:
+                color = 'blue'
+                opposite_color, same_color = red_nearest, blue_nearest
+                nearest_point = self.points[red_nearest_point[1]]
+                for tree in self.blue_trees:
+                    tree.add_node(point, point_index)
+
+
 
         self.spanner.add_node(point, color=color)
 
         for q in opposite_color:
-            self.spanner.add_edge(point, q, weight=distance.euclidean(point, q))
+            self.spanner.add_edge(point, self.points[q[1]], weight=distance.euclidean(point, self.points[q[1]]))
 
         for q in same_color:
-            if not self.spanner.has_edge(nearest_point, q):
-                self.spanner.add_edge(nearest_point, q, weight=distance.euclidean(nearest_point, q))
+            if not self.spanner.has_edge(nearest_point, self.points[q[1]]):
+                self.spanner.add_edge(nearest_point, self.points[q[1]], weight=distance.euclidean(nearest_point, self.points[q[1]]))
         #self.graphS.add(point)
 
-    def add_node(self, node):
-        current = []
-        opposite = []
-        if not self.graphS:
-            color = 'red'
-        else:
-            nearest = min(self.graphS, key=lambda q: distance.euclidean(q, node))
-            nearest_color = self.spanner.nodes[nearest]['color']
-            color = 'blue' if nearest_color == 'red' else 'red'
-
-        self.spanner.add_node(node, color=color)
-
-        #opposite, current = self.blue, self.red if color == 'red' else self.red, self.blue
-        if color =='red':
-            current, opposite = self.red, self.blue
-        else:
-            current, opposite = self.blue, self.red
-        opp_buckets = [None] * NUM_CONES
-        curr_buckets = [None] * NUM_CONES
-        edges_added = 0
-        curr_edges = 0
-        not_entered = 0
-
-        for q in opposite:
-            i = cone_index(node[0], node[1], q[0], q[1])
-            dist = distance.euclidean(node, q)
-            if opp_buckets[i] is None or dist < opp_buckets[i][0]:
-                opp_buckets[i] = (dist, q)
-
-        for entry in opp_buckets:
-            if entry is not None:
-                _, q = entry
-                self.spanner.add_edge(node, q, weight=distance.euclidean(node, q))
-                edges_added += 1
-
-        for q in current:
-            i = cone_index(node[0], node[1], q[0], q[1])
-            dist = distance.euclidean(node, q)
-            if curr_buckets[i] is None or dist < curr_buckets[i][0]:
-                curr_buckets[i] = (dist, q)
-
-        for entry in curr_buckets:
-            if entry is not None:
-                _, q = entry
-                not_entered += 1
-                if not self.spanner.has_edge(nearest, q):
-                    curr_edges += 1
-                    self.spanner.add_edge(nearest, q, weight=distance.euclidean(nearest, q))
-                    edges_added += 1
-        print(f"edges added: {edges_added} curr_edges added: {curr_edges} entered: {not_entered}")
-
-        (self.red if color == 'red' else self.blue).add(node)
-        self.graphS.add(node)
 
 def twod_list(points):
     my_graph = TwoDGraph()
@@ -172,6 +124,7 @@ def twod_list(points):
         my_graph.add_node_trees(point)
     my_graph.t = stretch_factor(my_graph.spanner)
     my_graph.plotter.draw_graph(my_graph.spanner, half_circle=False, t=my_graph.t)
+    my_graph.plotter.export_graph(my_graph.spanner, "spanner_output.pdf", half_circle=False, t=my_graph.t)
     plt.show(block=True)
 
 def twod_loop():
@@ -209,3 +162,5 @@ def twod_loop():
         except queue.Empty:
             pass
         plt.pause(0.05)
+
+    my_graph.plotter.export_graph(my_graph.spanner, "spanner_output.pdf", half_circle=False, t=my_graph.t)

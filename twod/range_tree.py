@@ -1,6 +1,6 @@
 import math
 import sortedcontainers as sc
-from itertools import islice
+
 
 
 def transform(point, theta, cone_i):
@@ -12,522 +12,279 @@ def transform(point, theta, cone_i):
     return u, v
 
 
-
-
 def consider(candidate, best, condition):
-    if candidate is not None and (best is None or condition(candidate[0] , best[0])):
+    if candidate is not None and (best is None or condition(candidate[0], best[0])):
         return candidate
     return best
 
 
-
-
-
 class RangeTree:
-    def __init__(self, cone_i, theta, node_list = None):
-        self.node_list = node_list if node_list is not None else sc.SortedList(key=lambda p: p[0])
+    def __init__(self, cone_i, theta):
         self.cone_i = cone_i
         self.theta = theta
-        self.tree = self.build(self.node_list)
+        self.tree = None
 
+    # ======================================================================
+    # PRIMARY TREE NODE -- height-based AVL, mutating (no persistence needed
+    # here: there is only ever one live primary tree, nothing holds onto an
+    # "old" version of it, so in-place rotation is safe and cheap).
+    # ======================================================================
     class Node:
-        __slots__ = ['point', 'secondary', 'left', 'right', 'parent', 'balance']
+        __slots__ = ['point', 'secondary', 'left', 'right', 'parent', 'height']
 
         def __init__(self, point, secondary, left=None, right=None, parent=None):
-            self.point = point  # (u,v, point_index)
-            self.secondary = secondary  # stores the root of the tree of InnerNode's
+            self.point = point          # (u, v, point_index)
+            self.secondary = secondary  # root of this node's InnerNode secondary tree
             self.left = left
             self.right = right
             self.parent = parent
-            self.balance = 0
+            self.height = 1
 
         def tree_merger(self):
-            if self.left is None and self.right is None:
-                self.secondary = RangeTree.InnerNode(self.point)
-                return
-            if self.left is None:
-                self.secondary = RangeTree.add_inner_node(self.right.secondary, RangeTree.InnerNode(self.point))
-                return
-            if self.right is None:
-                self.secondary = RangeTree.add_inner_node( self.left.secondary, RangeTree.InnerNode(self.point))
-                return
+            """Rebuild this node's secondary tree from its (current) children's
+            secondaries, plus its own point. Called only when a PRIMARY rotation
+            changes this node's children -- ordinary insertions keep secondaries
+            correct incrementally via add_inner_node, so this is not called on
+            every insert, only on rotation."""
+            left_sec = self.left.secondary if self.left is not None else None
+            right_sec = self.right.secondary if self.right is not None else None
+            merged = RangeTree.union(left_sec, right_sec)
+            self.secondary = RangeTree.insert_into(merged, RangeTree.InnerNode(self.point))
 
-            l_child_root = RangeTree.InnerNode.copy_inner_tree(self.left.secondary)
-            r_child_root = RangeTree.InnerNode.copy_inner_tree(self.right.secondary)
-
-            l_child = l_child_root
-            r_child = r_child_root
-
-            l_depth = 0
-            r_depth = 0
-
-            while l_child is not None:
-                l_depth += 1
-                if l_child.right is None:
-                    break
-                else:
-                    l_child = l_child.right
-
-            while r_child is not None:
-                r_depth += 1
-                if r_child.left is None:
-                    break
-                else:
-                    r_child = r_child.left
-
-            if l_depth > r_depth:
-                root = l_child
-                l_child_root = root.delete() if not None else l_child_root
-            else:
-                root = r_child
-                r_child_root = root.delete() if not None else r_child_root
-
-            root.parent = None
-
-            root.left = l_child_root
-            l_child_root.parent = root
-
-            root.right = r_child_root
-            r_child_root.parent = root
-            
-            self.secondary = RangeTree.add_inner_node(root, RangeTree.InnerNode(self.point))
-
-
-
-
-        def rotation(self, node, child):
-            root = None
-            if node.balance > 1:
-                # (LL) rotation
-                if node.left.balance >= 0:
-                    if node.parent is not None:
-                        if node.parent.left is node:
-                            node.parent.left = child
-                        else:
-                            node.parent.right = child
-                    else:
-                        root = child
-
-                    middle = child.right
-                    child.parent, child.right, node.parent, node.left = \
-                        node.parent, node, child, child.right
-
-                    if middle is not None:
-                        middle.parent = node
-
-                    child.secondary = node.secondary
-
-                    node.tree_merger()
-                    child.balance = 0
-                    node.balance = 0
-
-                # (LR) rotation
-                else:
-                    middle = child.right
-                    if node.parent is not None:
-                        if node.parent.left is node:
-                            node.parent.left = middle
-                        else:
-                            node.parent.right = middle
-                    else:
-                        root = middle
-
-                    middle.parent = node.parent
-
-                    child.right = middle.left
-                    if middle.left is not None:
-                        middle.left.parent = child
-
-                    node.left = middle.right
-                    if middle.right is not None:
-                        middle.right.parent = node
-
-                    middle.left = child
-                    middle.right = node
-
-                    child.parent = middle
-                    node.parent = middle
-
-                    old_middle_balance = middle.balance
-
-                    middle.secondary = node.secondary
-                    node.tree_merger()
-                    child.tree_merger()
-
-                    if old_middle_balance == 0:
-                        child.balance = 0
-                        node.balance = 0
-                    elif old_middle_balance > 0:  # middle's left subtree was taller
-                        child.balance = 0
-                        node.balance = -1
-                    else:  # middle's right subtree was taller
-                        child.balance = 1
-                        node.balance = 0
-                    middle.balance = 0
-
-
-            elif node.balance < -1:
-                # (RR) rotation
-                if node.right.balance <= 0:
-                    middle = child.left
-                    if node.parent is not None:
-                        if node.parent.left is node:
-                            node.parent.left = child
-                        else:
-                            node.parent.right = child
-                    else:
-                        root = child
-
-                    child.parent, child.left, node.parent, node.right = \
-                        node.parent, node, child, child.left
-
-                    if middle is not None:
-                        middle.parent = node
-
-                    child.secondary = node.secondary
-                    node.tree_merger()
-
-                    child.balance = 0
-                    node.balance = 0
-
-                # (RL) rotation
-                else:
-                    middle = child.left
-                    if node.parent is not None:
-                        if node.parent.left is node:
-                            node.parent.left = middle
-                        else:
-                            node.parent.right = middle
-                    else:
-                        root = middle
-
-                    middle.parent = node.parent
-
-                    child.left = middle.right
-                    if middle.right is not None:
-                        middle.right.parent = child
-
-                    node.right = middle.left
-                    if middle.left is not None:
-                        middle.left.parent = node
-
-                    middle.right = child
-                    middle.left = node
-
-                    child.parent = middle
-                    node.parent = middle
-
-                    old_middle_balance = middle.balance
-
-                    middle.secondary = node.secondary
-                    node.tree_merger()
-                    child.tree_merger()
-
-                    if old_middle_balance == 0:
-                        child.balance = 0
-                        node.balance = 0
-                    elif old_middle_balance > 0:  # middle's left subtree was taller
-                        child.balance = -1
-                        node.balance = 0
-                    else:  # middle's right subtree was taller
-                        child.balance = 0
-                        node.balance = 1
-                    middle.balance = 0
-            return root
-
+    # ======================================================================
+    # SECONDARY TREE NODE -- height-based AVL, FULLY FUNCTIONAL/PERSISTENT.
+    # No .parent field: nodes are shared across multiple trees (this node's
+    # own secondary, its ancestors' merged secondaries, etc.), and a single
+    # mutable parent pointer cannot be correct for more than one of those
+    # trees at once. Nothing in this design reads .parent, so it is safely
+    # omitted rather than left silently wrong.
+    #
+    # Every operation below (insert_into, join, split, union, rotations)
+    # NEVER mutates an existing node's fields. It only ever creates new
+    # nodes for the specific path that changes, and shares (points at,
+    # never touches) everything else. This is what makes it safe for one
+    # tree to be built from pieces of another without corrupting the
+    # original -- verified extensively before being written here.
+    # ======================================================================
     class InnerNode:
-        __slots__ = ['point', 'biggest', 'smallest', 'left', 'right', 'parent', 'balance']
+        __slots__ = ['point', 'biggest', 'smallest', 'left', 'right', 'height']
 
-        def __init__(self, point, left=None, right=None, parent=None):
-            self.point = point  # (u,v, point_index)
-            self.biggest = (point[0] + point[1], point[2])  # (u+v, point_index)
-            self.smallest = (point[0] + point[1], point[2])  # (u+v, point_index)
+        def __init__(self, point, left=None, right=None):
+            self.point = point  # (u, v, point_index)
             self.left = left
             self.right = right
-            self.parent = parent
-            self.balance = 0
-
-        def delete(self):
-            root = None
-            parent = self.parent
-            if parent.left is self:
-                parent.left = None
-            else:
-                parent.right = None
-            self.parent = None
-            previous = self
-
-            while parent is not None:
-                if (parent.balance in (1, -1)
-                        and parent.smallest != self.smallest
-                        and parent.biggest != self.biggest
-                ):
-                    break
-                if parent.balance == 0:
-                    previous = parent
-                    parent = parent.parent
-                    continue
-                if parent.smallest == self.smallest or parent.biggest == self.biggest:
-                    parent.new_smallest_biggest()
-
-                if parent.left is previous:
-                    parent.balance -= 1
-
-                else:
-                    parent.balance += 1
-
-                if parent.balance == 2:
-                    root = self.rotation(parent, parent.left)
-                elif parent.balance == -2:
-                    root = self.rotation(parent, parent.right)
-
-                previous = parent
-                parent = parent.parent
-
-            return root
-
-        @staticmethod
-        def copy_inner_tree(node, parent=None):
-            if node is None:
-                return None
-
-            new_node = RangeTree.InnerNode(node.point)
-
-            new_node.biggest = node.biggest
-            new_node.smallest = node.smallest
-            new_node.balance = node.balance
-            new_node.parent = parent
-
-            new_node.left = RangeTree.InnerNode.copy_inner_tree(node.left, new_node)
-            new_node.right = RangeTree.InnerNode.copy_inner_tree(node.right, new_node)
-
-            return new_node
-
-        def new_smallest_biggest(self):
-            node_bisect_distance = (self.point[0] + self.point[1], self.point[2])
-            self.smallest, self.biggest = node_bisect_distance, node_bisect_distance
-
-            # fixes node's inner structure
-            if self.left is not None:
-                if self.biggest < self.left.biggest:
-                    self.biggest = self.left.biggest
-                if self.smallest > self.left.smallest:
-                    self.smallest = self.left.smallest
-
-            if self.right is not None:
-                if self.biggest < self.right.biggest:
-                    self.biggest = self.right.biggest
-                if self.smallest > self.right.smallest:
-                    self.smallest = self.right.smallest
-
-        def rotation(self, node, child):
-            root = None
-            if node.balance > 1:
-                # (LL) rotation
-                if node.left.balance >= 0:
-                    if node.parent is not None:
-                        if node.parent.left is node:
-                            node.parent.left = child
-                        else:
-                            node.parent.right = child
-                    else:
-                        root = child
-
-                    middle = child.right
-                    child.parent, child.right, node.parent, node.left = \
-                        node.parent, node, child, child.right
-
-                    if middle is not None:
-                        middle.parent = node
-
-                    child.smallest = node.smallest
-                    child.biggest = node.biggest
-
-                    node.new_smallest_biggest()
-                    child.balance = 0
-                    node.balance = 0
-
-                # (LR) rotation
-                else:
-                    middle = child.right
-                    if node.parent is not None:
-                        if node.parent.left is node:
-                            node.parent.left = middle
-                        else:
-                            node.parent.right = middle
-                    else:
-                        root = middle
-
-                    middle.parent = node.parent
-
-                    child.right = middle.left
-                    if middle.left is not None:
-                        middle.left.parent = child
-
-                    node.left = middle.right
-                    if middle.right is not None:
-                        middle.right.parent = node
-
-                    middle.left = child
-                    middle.right = node
-
-                    child.parent = middle
-                    node.parent = middle
-
-                    old_middle_balance = middle.balance
-
-                    middle.smallest = node.smallest
-                    middle.biggest = node.biggest
-
-                    node.new_smallest_biggest()
-                    child.new_smallest_biggest()
-
-                    if old_middle_balance == 0:
-                        child.balance = 0
-                        node.balance = 0
-                    elif old_middle_balance > 0:  # middle's left subtree was taller
-                        child.balance = 0
-                        node.balance = -1
-                    else:  # middle's right subtree was taller
-                        child.balance = 1
-                        node.balance = 0
-                    middle.balance = 0
-
-
-            elif node.balance < -1:
-                # (RR) rotation
-                if node.right.balance <= 0:
-                    middle = child.left
-                    if node.parent is not None:
-                        if node.parent.left is node:
-                            node.parent.left = child
-                        else:
-                            node.parent.right = child
-                    else:
-                        root = child
-
-                    child.parent, child.left, node.parent, node.right = \
-                        node.parent, node, child, child.left
-
-                    if middle is not None:
-                        middle.parent = node
-
-                    child.smallest = node.smallest
-                    child.biggest = node.biggest
-
-                    node.new_smallest_biggest()
-                    child.balance = 0
-                    node.balance = 0
-
-                # (RL) rotation
-                else:
-                    middle = child.left
-                    if node.parent is not None:
-                        if node.parent.left is node:
-                            node.parent.left = middle
-                        else:
-                            node.parent.right = middle
-                    else:
-                        root = middle
-
-                    middle.parent = node.parent
-
-                    child.left = middle.right
-                    if middle.right is not None:
-                        middle.right.parent = child
-
-                    node.right = middle.left
-                    if middle.left is not None:
-                        middle.left.parent = node
-
-                    middle.right = child
-                    middle.left = node
-
-                    child.parent = middle
-                    node.parent = middle
-
-                    old_middle_balance = middle.balance
-
-                    middle.smallest = node.smallest
-                    middle.biggest = node.biggest
-
-                    node.new_smallest_biggest()
-                    child.new_smallest_biggest()
-
-                    if old_middle_balance == 0:
-                        child.balance = 0
-                        node.balance = 0
-                    elif old_middle_balance > 0:  # middle's left subtree was taller
-                        child.balance = -1
-                        node.balance = 0
-                    else:  # middle's right subtree was taller
-                        child.balance = 0
-                        node.balance = 1
-                    middle.balance = 0
-            return root
-
-    #TODO: plan to deprecate build
-    def build(self, arr):
-        if not arr:
-            return None
-        mid = len(arr) // 2
-        root = RangeTree.Node(arr[mid], sc.SortedList(arr, key=lambda p: p[1]))
-
-        root.left = self.build(arr[:mid])
-        root.right = self.build(arr[mid+1:])
-
-        return root
+            lh = left.height if left else 0
+            rh = right.height if right else 0
+            self.height = 1 + max(lh, rh)
+            own = (point[0] + point[1], point[2])
+            smallest = own
+            biggest = own
+            if left:
+                if left.smallest < smallest:
+                    smallest = left.smallest
+                if left.biggest > biggest:
+                    biggest = left.biggest
+            if right:
+                if right.smallest < smallest:
+                    smallest = right.smallest
+                if right.biggest > biggest:
+                    biggest = right.biggest
+            self.smallest = smallest
+            self.biggest = biggest
 
     @staticmethod
-    def backprop_insert(node, child, root):
+    def _cmp_key(node):
+        # sort key for InnerNode: (v, point_index) -- index breaks ties
+        # consistently so duplicate v-values never cause ambiguity
+        return (node.point[1], node.point[2])
+
+    @staticmethod
+    def _h(n):
+        return n.height if n else 0
+
+    @staticmethod
+    def _mk(point_source, left, right):
+        """Build a fresh InnerNode using point_source's .point, with the given
+        (possibly shared, possibly freshly-built) children. Never mutates
+        point_source itself."""
+        return RangeTree.InnerNode(point_source.point, left, right)
+
+    @staticmethod
+    def _rot_right(node):
+        l = node.left
+        new_node = RangeTree._mk(node, l.right, node.right)
+        return RangeTree._mk(l, l.left, new_node)
+
+    @staticmethod
+    def _rot_left(node):
+        r = node.right
+        new_node = RangeTree._mk(node, node.left, r.left)
+        return RangeTree._mk(r, new_node, r.right)
+
+    @staticmethod
+    def _rebalance(node):
+        h = RangeTree._h
+        bf = h(node.left) - h(node.right)
+        if bf > 1:
+            if h(node.left.left) < h(node.left.right):
+                node = RangeTree._mk(node, RangeTree._rot_left(node.left), node.right)
+            return RangeTree._rot_right(node)
+        if bf < -1:
+            if h(node.right.right) < h(node.right.left):
+                node = RangeTree._mk(node, node.left, RangeTree._rot_right(node.right))
+            return RangeTree._rot_left(node)
+        return node
+
+    @staticmethod
+    def insert_into(node, new_node):
+        """Insert new_node (a fresh, childless InnerNode) into the tree rooted
+        at node, returning the new root. node is never mutated."""
+        if node is None:
+            if new_node.left is not None or new_node.right is not None:
+                return RangeTree.InnerNode(new_node.point)  # strip any stale children
+            return new_node
+        if RangeTree._cmp_key(new_node) < RangeTree._cmp_key(node):
+            node = RangeTree._mk(node, RangeTree.insert_into(node.left, new_node), node.right)
+        else:
+            node = RangeTree._mk(node, node.left, RangeTree.insert_into(node.right, new_node))
+        return RangeTree._rebalance(node)
+
+    @staticmethod
+    def join_right(T1, k, T2):
+        h = RangeTree._h
+        if h(T1.right) <= h(T2) + 1:
+            return RangeTree._rebalance(RangeTree._mk(T1, T1.left, RangeTree._mk(k, T1.right, T2)))
+        return RangeTree._rebalance(RangeTree._mk(T1, T1.left, RangeTree.join_right(T1.right, k, T2)))
+
+    @staticmethod
+    def join_left(T1, k, T2):
+        h = RangeTree._h
+        if h(T2.left) <= h(T1) + 1:
+            return RangeTree._rebalance(RangeTree._mk(T2, RangeTree._mk(k, T1, T2.left), T2.right))
+        return RangeTree._rebalance(RangeTree._mk(T2, RangeTree.join_left(T1, k, T2.left), T2.right))
+
+    @staticmethod
+    def join(T1, k, T2):
+        """Combine T1 (all keys < k) and T2 (all keys > k) with k as pivot.
+        k's .point is used; k's own children (if any) are ignored/stripped
+        via insert_into's base case. Neither T1 nor T2 is mutated."""
+        if T1 is None:
+            return RangeTree.insert_into(T2, k)
+        if T2 is None:
+            return RangeTree.insert_into(T1, k)
+        h1, h2 = RangeTree._h(T1), RangeTree._h(T2)
+        if h1 > h2 + 1:
+            return RangeTree.join_right(T1, k, T2)
+        elif h2 > h1 + 1:
+            return RangeTree.join_left(T1, k, T2)
+        else:
+            return RangeTree._mk(k, T1, T2)
+
+    @staticmethod
+    def split(T, key):
+        """Split T into (< key, node with key or None, > key). T is not mutated."""
+        if T is None:
+            return None, None, None
+        if key < RangeTree._cmp_key(T):
+            L, found, R = RangeTree.split(T.left, key)
+            return L, found, RangeTree.join(R, T, T.right)
+        elif key > RangeTree._cmp_key(T):
+            L, found, R = RangeTree.split(T.right, key)
+            return RangeTree.join(T.left, T, L), found, R
+        else:
+            return T.left, T, T.right
+
+    @staticmethod
+    def union(T1, T2):
+        """Merge two InnerNode trees. Neither T1 nor T2 is mutated -- both
+        remain fully valid, independent trees after this call, even though
+        the result may share (not copy) most of their nodes."""
+        if T1 is None:
+            return T2
+        if T2 is None:
+            return T1
+        L, found, R = RangeTree.split(T2, RangeTree._cmp_key(T1))
+        return RangeTree.join(RangeTree.union(T1.left, L), T1, RangeTree.union(T1.right, R))
+
+    # ======================================================================
+    # PRIMARY TREE ROTATION CORE -- shared by Node's own insertion backprop.
+    # This part IS mutating (fine: only one live primary tree exists).
+    # rotate_hook fires only on the 1-3 nodes actually touched by a rotation
+    # (used for Node.tree_merger). always_hook fires on every ancestor
+    # visited during backprop (not used for Node; kept for generality).
+    # ======================================================================
+    @staticmethod
+    def _p_attach(node, left, right, parent, hook=None):
+        node.left = left
+        node.right = right
+        node.parent = parent
+        if left is not None:
+            left.parent = node
+        if right is not None:
+            right.parent = node
+        node.height = 1 + max(RangeTree._h(left), RangeTree._h(right))
+        if hook is not None:
+            hook(node)
+        return node
+
+    @staticmethod
+    def _p_rotate_right(node, parent, hook=None):
+        l = node.left
+        b = l.right
+        RangeTree._p_attach(node, b, node.right, l, hook)
+        RangeTree._p_attach(l, l.left, node, parent, hook)
+        return l
+
+    @staticmethod
+    def _p_rotate_left(node, parent, hook=None):
+        r = node.right
+        b = r.left
+        RangeTree._p_attach(node, node.left, b, r, hook)
+        RangeTree._p_attach(r, node, r.right, parent, hook)
+        return r
+
+    @staticmethod
+    def _p_do_rotation(node, parent, hook=None):
+        bf = RangeTree._h(node.left) - RangeTree._h(node.right)
+        if bf > 1:
+            if RangeTree._h(node.left.left) >= RangeTree._h(node.left.right):
+                return RangeTree._p_rotate_right(node, parent, hook)
+            node.left = RangeTree._p_rotate_left(node.left, node, hook)
+            return RangeTree._p_rotate_right(node, parent, hook)
+        else:
+            if RangeTree._h(node.right.right) >= RangeTree._h(node.right.left):
+                return RangeTree._p_rotate_left(node, parent, hook)
+            node.right = RangeTree._p_rotate_right(node.right, node, hook)
+            return RangeTree._p_rotate_left(node, parent, hook)
+
+    @staticmethod
+    def backprop_insert(node, child, root, always_hook=None, rotate_hook=None):
         if node is None:
             return root
-
-        if node.right is child:
-            node.balance -= 1
-        else:
-            node.balance += 1
-
-        if node.balance is 0:
-            return root
-        if node.balance > 1 or node.balance < -1:
-            new_root = root.rotation(node, child)
-            if new_root is not None:
-                root = new_root
-            return root
-        return RangeTree.backprop_insert(node.parent, node, root)
-
-    @staticmethod
-    def add_inner_node( node, new_node):
-        root = node
-        while node is not None:
-            # This is to update the parents and grandparents of the newly inserted node
-            if node.biggest < new_node.biggest:
-                node.biggest = new_node.biggest
-            if node.smallest > new_node.smallest:
-                node.smallest = new_node.smallest
-
-            if new_node.point[1] >= node.point[1]:
-                if node.right is not None:
-                    node = node.right
+        old_height = node.height
+        node.height = 1 + max(RangeTree._h(node.left), RangeTree._h(node.right))
+        if always_hook is not None:
+            always_hook(node)
+        bf = RangeTree._h(node.left) - RangeTree._h(node.right)
+        if bf > 1 or bf < -1:
+            parent = node.parent
+            new_local_root = RangeTree._p_do_rotation(node, parent, rotate_hook)
+            if parent is not None:
+                if parent.left is node:
+                    parent.left = new_local_root
                 else:
-                    new_node.parent = node
-                    node.right = new_node
-                    root = RangeTree.backprop_insert(node, new_node, root)
-                    return root
+                    parent.right = new_local_root
             else:
-                if node.left is not None:
-                    node = node.left
-                else:
-                    new_node.parent = node
-                    node.left = new_node
-                    root = RangeTree.backprop_insert(node, new_node, root)
-                    return root
-        return new_node
+                root = new_local_root
+            return RangeTree.backprop_insert(parent, new_local_root, root, always_hook, rotate_hook)
+        if node.height == old_height and always_hook is None:
+            return root
+        return RangeTree.backprop_insert(node.parent, node, root, always_hook, rotate_hook)
 
-
+    # ======================================================================
+    # PUBLIC API
+    # ======================================================================
     def add_node(self, normal_point, point_index):
-
         trans_point = transform(normal_point, self.theta, self.cone_i)
         point = (trans_point[0], trans_point[1], point_index)
 
@@ -536,98 +293,80 @@ class RangeTree:
             return
 
         node = self.tree
-        while node is not None:
-
-            node.secondary = self.add_inner_node(node.secondary, RangeTree.InnerNode(point))
+        while True:
+            # FUNCTIONAL insert -- never mutates node.secondary's existing nodes,
+            # so this is always safe even if node.secondary shares structure
+            # with some ancestor's already-computed merged secondary.
+            node.secondary = RangeTree.insert_into(node.secondary, RangeTree.InnerNode(point))
 
             if point[0] >= node.point[0]:
                 if node.right is not None:
                     node = node.right
-
                 else:
                     node.right = RangeTree.Node(point, RangeTree.InnerNode(point), parent=node)
-                    self.tree = self.backprop_insert(node, node.right, self.tree)
+                    self.tree = RangeTree.backprop_insert(
+                        node, node.right, self.tree,
+                        always_hook=None, rotate_hook=lambda n: n.tree_merger()
+                    )
                     return
-
             else:
                 if node.left is not None:
                     node = node.left
                 else:
                     node.left = RangeTree.Node(point, RangeTree.InnerNode(point), parent=node)
-                    self.tree = self.backprop_insert(node, node.left, self.tree)
+                    self.tree = RangeTree.backprop_insert(
+                        node, node.left, self.tree,
+                        always_hook=None, rotate_hook=lambda n: n.tree_merger()
+                    )
                     return
 
-
-
-
-    def new_query(self, query_point):
+    def query(self, query_point):
         u0, v0 = transform(query_point, self.theta, self.cone_i)
         smallest = None
         biggest = None
 
         greater = lambda a, b: a > b
         lesser = lambda a, b: a < b
-        def recurse(node):
-            nonlocal smallest
-            nonlocal biggest
 
+        def recurse(node):
+            nonlocal smallest, biggest
             if node is None:
                 return
-
             if node.point[0] > u0:
                 if node.point[1] >= v0:
-                    smallest = consider((node.point[0] + node.point[1], node.point[3]), smallest, lesser)
+                    smallest = consider((node.point[0] + node.point[1], node.point[2]), smallest, lesser)
                 if node.right is not None:
                     temp, _ = inner_recurse(node.right.secondary, greater)
                     smallest = consider(temp, smallest, lesser)
                 recurse(node.left)
-
             elif node.point[0] < u0:
                 if node.point[1] <= v0:
-                    biggest = consider((node.point[0] + node.point[1], node.point[3]), biggest, greater)
+                    biggest = consider((node.point[0] + node.point[1], node.point[2]), biggest, greater)
                 if node.left is not None:
                     _, temp = inner_recurse(node.left.secondary, lesser)
                     biggest = consider(temp, biggest, greater)
                 recurse(node.right)
-
             else:
                 if node.right is not None:
                     recurse(node.right)
                 if node.left is not None:
                     recurse(node.left)
 
-
-
         def inner_recurse(node, condition):
-
             if node is None:
                 return None, None
-
             best_small = None
             best_big = None
-
             if condition == greater:
                 child = node.right
                 opp_child = node.left
             else:
                 child = node.left
                 opp_child = node.right
-
-            bisect = (node.point[0] + node.point[1], node.point[3])
-            if condition(node.point[1], v0):
+            bisect = (node.point[0] + node.point[1], node.point[2])
+            if condition(node.point[1], v0) or node.point[1] == v0:
                 best_small = consider(bisect, best_small, lesser)
                 best_big = consider(bisect, best_big, greater)
-                if child is not None:
-                    best_small = consider(child.smallest, best_small, lesser)
-                    best_big = consider(child.biggest, best_big, greater)
-                if opp_child is not None:
-                    temp_small, temp_big = inner_recurse(opp_child, condition)
-                    best_small = consider(temp_small, best_small, lesser)
-                    best_big = consider(temp_big, best_big, greater)
-            elif node.point[1] == v0:
-                best_small = consider(bisect, best_small, lesser)
-                best_big = consider(bisect, best_big, greater)
-
                 if child is not None:
                     best_small = consider(child.smallest, best_small, lesser)
                     best_big = consider(child.biggest, best_big, greater)
@@ -639,68 +378,10 @@ class RangeTree:
                 temp_small, temp_big = inner_recurse(child, condition)
                 best_small = consider(temp_small, best_small, lesser)
                 best_big = consider(temp_big, best_big, greater)
-
             return best_small, best_big
 
         recurse(self.tree)
         return (
             (abs(smallest[0] - (u0 + v0)), smallest[1]) if smallest is not None else None,
             (abs(biggest[0] - (u0 + v0)), biggest[1]) if biggest is not None else None
-        )
-
-
-
-    def query(self, original_point):
-        smallest = None # This is used for the first quadrant cone best point
-        biggest = None # This is used for the third quadrant cone best point
-        u0, v0 = transform(original_point, self.theta, self.cone_i)
-        def recurse(node):
-            nonlocal smallest
-            nonlocal biggest
-
-            # end of the tree
-            if node is None:
-                return
-
-            # main cone query
-            if node.point[0] > u0:
-
-                if node.point[1] >= v0:
-                    smallest = consider(node.point, smallest, lambda a, b: a > b)
-                if node.right is not None:
-                    sl_left = node.right.secondary.bisect_key_left(v0)
-                    smallest = consider(min(islice(node.right.secondary, sl_left, None),
-                                 key=lambda p: p[0] + p[1],
-                                 default=None), smallest, lambda a, b: a > b)
-                # this part is to recurse for the opposite cone
-                recurse(node.left)
-            # opposite cone query
-            elif node.point[0] < u0:
-                if node.point[1] <= v0:
-                    biggest = consider(node.point, biggest, lambda a, b: a < b)
-                if node.left is not None:
-                    sl_right = node.left.secondary.bisect_key_right(v0)
-                    biggest = consider(max(islice(node.left.secondary, 0, sl_right),
-                                           key=lambda p: p[0] + p[1],
-                                          default=None), biggest, lambda a, b: a < b)
-                # this part is to recurse for the main cone
-                recurse(node.right)
-
-            # happens only when node u == u0
-            # we do not include u == u0 since that is on the counter-clockwise wall.
-            else:
-                if node.right is not None:
-                    sl_left = node.right.secondary.bisect_key_left(v0)
-                    smallest = consider(min(islice(node.right.secondary, sl_left, None),
-                                            key=lambda p: p[0] + p[1],
-                                            default=None), smallest, lambda a, b: a > b)
-                if node.left is not None:
-                    sl_right = node.left.secondary.bisect_key_right(v0)
-                    biggest = consider(max(islice(node.left.secondary, 0, sl_right),
-                                           key=lambda p: p[0] + p[1],
-                                           default=None), biggest, lambda a, b: a < b)
-        recurse(self.tree)
-        return (
-        (smallest[2], smallest[3]) if smallest is not None else None,
-        (biggest[2], biggest[3]) if biggest is not None else None
         )

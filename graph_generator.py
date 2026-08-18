@@ -4,7 +4,7 @@ import random
 def generate_unique_1d(n, low = -100, high = 100):
     return random.sample(range(low, high + 1), n)
 
-def generate_unique_2d(n, low = -100, high = 100):
+def generate_unique_2d(n, low = -1000, high = 1000):
     points = set()
     while len(points) < n:
         x = random.randint(low, high)
