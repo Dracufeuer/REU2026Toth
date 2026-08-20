@@ -111,7 +111,7 @@ class GraphPlotter:
             segments = [[u, v] for u, v in edges if u != v]
         ax.add_collection(LineCollection(segments, colors='green', linewidths=1.0, zorder=1))
 
-        for i, p in enumerate(nodes):
+        for i, p in enumerate(nodes, start=1):
             ax.annotate(str(i), p, fontsize=font_size, ha='center', va='center', zorder=3)
 
         ax.set_xlim(xs.min() - 1, xs.max() + 1)
@@ -172,7 +172,7 @@ class GraphPlotter:
                 self._label_texts = [
                     self.ax.text(p[0], p[1], str(i), fontsize=8,
                                  ha='center', va='center', zorder=3)
-                    for i, p in enumerate(nodes)
+                    for i, p in enumerate(nodes, start=1)
                 ]
             else:
                 for txt, p in zip(self._label_texts, nodes):

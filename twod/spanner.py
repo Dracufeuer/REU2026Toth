@@ -16,30 +16,58 @@ NUM_CONES = 12 # NEEDS to be an even number
 CONE_WIDTH = 2 * math.pi / NUM_CONES
 
 
-def cone_index(px, py, qx, qy):
-    angle = math.atan2(qy - py, qx - px)
-    if angle < 0:
-        angle += 2 * math.pi
-    return int(angle // CONE_WIDTH)
-
 
 class TwoDGraph:
+    """
+    Incrementally builds a 2D online bichromatic geometric spanner.
+
+    Each point added is colored red or blue, opposite to the color of its
+    nearest already-placed neighbor, so that every edge crossing between a
+    point and its nearest neighbor is bichromatic. One ''RangeTree'' per
+    cone direction, per color, supports the nearest-neighbor-per-cone
+    queries the construction relies on.
+    """
+
     def __init__(self):
+        """
+        Initializes an empty spanner with ''NUM_CONES / 2'' red and blue
+        range trees, one per two cone direction.
+        """
         self.spanner = nx.Graph()
         self.points = []
         self.plotter = GraphPlotter()
         self.t = 0
 
         self.blue_trees = [
-            RangeTree(cone_i = i, theta=CONE_WIDTH)
+            RangeTree(cone_i = i, radian=CONE_WIDTH)
             for i in range(int(NUM_CONES/2))
         ]
         self.red_trees = [
-            RangeTree(cone_i = i, theta=CONE_WIDTH)
+            RangeTree(cone_i = i, radian=CONE_WIDTH)
             for i in range(int(NUM_CONES/2))
         ]
 
     def add_node_trees(self, point):
+        """
+        Inserts ''point'' into the spanner and connects it according to the
+        online bichromatic construction rule.
+
+        ''point'' is colored opposite to whichever existing color has the
+        closer overall nearest neighbor to it (ensuring the edge to that
+        neighbor is bichromatic); if only one color exists so far, ''point''
+        is colored the other one. ''point'' is then inserted into every
+        range tree matching its own color, so later points can find it.
+
+        Two kinds of edges are added:
+            - An edge from ''point'' to its nearest neighbor of the
+              opposite color in every cone direction (''opposite_color'').
+            - An edge from the single overall nearest opposite-color point
+              (''nearest_point'') to each of ''point'''s nearest same-color
+              neighbors per cone (''same_color''), if that edge does not
+              already exist.
+
+        :param point: Cartesian coordinate given ''(x, y)'' to add to the spanner.
+        """
         self.points.append(point)
         point_index = len(self.points) - 1
         opposite_color = []
@@ -119,6 +147,11 @@ class TwoDGraph:
 
 
 def twod_list(points):
+    """
+    Builds a 2D spanner from a fixed list of points, then draws and exports it.
+
+    :param points: List of ''(x, y)'' coordinates to add to the spanner, in order.
+    """
     my_graph = TwoDGraph()
     for point in points:
         my_graph.add_node_trees(point)
@@ -128,12 +161,21 @@ def twod_list(points):
     plt.show(block=True)
 
 def twod_loop():
+    """
+    Runs an interactive session that reads 2D points from the console,
+    adding each to the spanner and redrawing until the user exits.
+    """
     my_graph = TwoDGraph()
     redraw_queue = queue.Queue()
 
     def input_loop():
+        """
+        Reads coordinate input from the console on a background thread,
+        adding each valid point to the spanner and signaling the main
+        thread to redraw.
+        """
         while True:
-            user_input = input("Enter 2D coordinates (x, y) separated by a space or comma: ")
+            user_input = input("Enter 2D coordinates (x, y) separated by a space or comma (n to exit): ")
             if user_input.strip().lower() == "n":
                 break
             try:

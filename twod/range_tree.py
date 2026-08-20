@@ -1,75 +1,104 @@
 import math
-import sortedcontainers as sc
 
 
+def transform(point, radian, cone_i):
+    """
+    performs an oblique coordinate transformation.
 
-def transform(point, theta, cone_i):
-    a = cone_i * theta
+    The transformation maps a point from Cartesian coordinate system to coordinates
+    defined by the boundaries of the cone sector.
+
+    :param point: Original cartesian coordinate given ''(x, y)''.
+    :param radian: Angular width of the cone sector, in radians.
+    :param cone_i: Index of the cone sector.
+    :return: Transformed point as ''(u, v)'' tuple.
+    """
+    a = cone_i * radian
     x = point[0]
     y = point[1]
-    u = (math.sin(a + theta) * x - math.cos(a + theta)*y) / math.sin(theta)
-    v = (math.cos(a)*y - math.sin(a)*x) / math.sin(theta)
+    u = (math.sin(a + radian) * x - math.cos(a + radian)*y) / math.sin(radian)
+    v = (math.cos(a)*y - math.sin(a)*x) / math.sin(radian)
     return u, v
 
 
 def consider(candidate, best, condition):
+    """
+    Compares the current best ''(u+v, point_index)'' compared to the new candidate.
+    Returning whichever gives the best ''u+v'', determined by the lambda function ''condition''.
+
+    :param candidate: The new ''(u+v, point_index)'' to be compared to the current best.
+    :param best: The current held best ''(u+v, point_index)'' tuple.
+    :param condition: Lambda function that is either greater or less than.
+    :return: The new best ''(u+v, point_index)'' tuple.
+    """
     if candidate is not None and (best is None or condition(candidate[0], best[0])):
         return candidate
     return best
 
 
 class RangeTree:
-    def __init__(self, cone_i, theta):
+    """ Range tree for a cone sector. """
+
+    def __init__(self, cone_i, radian):
+        """
+        Initialization of the range tree.
+        :param cone_i: Index of the cone sector.
+        :param radian: Angular width of the cone sector, in radians.
+        """
         self.cone_i = cone_i
-        self.theta = theta
+        self.radian = radian
         self.tree = None
 
-    # ======================================================================
-    # PRIMARY TREE NODE -- height-based AVL, mutating (no persistence needed
-    # here: there is only ever one live primary tree, nothing holds onto an
-    # "old" version of it, so in-place rotation is safe and cheap).
-    # ======================================================================
+
     class Node:
+        """ Node in the outer tree of the Range tree, ordered by the point's U-value."""
         __slots__ = ['point', 'secondary', 'left', 'right', 'parent', 'height']
 
         def __init__(self, point, secondary, left=None, right=None, parent=None):
-            self.point = point          # (u, v, point_index)
-            self.secondary = secondary  # root of this node's InnerNode secondary tree
+            """
+            Initialize the Node for the outer tree.
+            :param point: Transformed point and its index as a
+                ''(u, v, point_index)'' tuple.
+            :param secondary: Root of the InnerNode secondary tree structure.
+            :param left: Pointer to the left child Node.
+            :param right: Pointer to the right child Node.
+            :param parent: Pointer to the parent Node.
+            """
+            self.point = point
+            self.secondary = secondary
             self.left = left
             self.right = right
             self.parent = parent
             self.height = 1
 
         def tree_merger(self):
-            """Rebuild this node's secondary tree from its (current) children's
-            secondaries, plus its own point. Called only when a PRIMARY rotation
-            changes this node's children -- ordinary insertions keep secondaries
-            correct incrementally via add_inner_node, so this is not called on
-            every insert, only on rotation."""
+            """
+            Rebuilds this Node's secondary tree from its current children's
+            secondary trees, plus its own point.
+
+            Only called when a primary tree rotation changes this Node's
+            children; ordinary insertions keep secondary trees correct
+            incrementally through ''insert_into'', so this is not called on
+            every insertion.
+            """
             left_sec = self.left.secondary if self.left is not None else None
             right_sec = self.right.secondary if self.right is not None else None
             merged = RangeTree.union(left_sec, right_sec)
             self.secondary = RangeTree.insert_into(merged, RangeTree.InnerNode(self.point))
 
-    # ======================================================================
-    # SECONDARY TREE NODE -- height-based AVL, FULLY FUNCTIONAL/PERSISTENT.
-    # No .parent field: nodes are shared across multiple trees (this node's
-    # own secondary, its ancestors' merged secondaries, etc.), and a single
-    # mutable parent pointer cannot be correct for more than one of those
-    # trees at once. Nothing in this design reads .parent, so it is safely
-    # omitted rather than left silently wrong.
-    #
-    # Every operation below (insert_into, join, split, union, rotations)
-    # NEVER mutates an existing node's fields. It only ever creates new
-    # nodes for the specific path that changes, and shares (points at,
-    # never touches) everything else. This is what makes it safe for one
-    # tree to be built from pieces of another without corrupting the
-    # original -- verified extensively before being written here.
-    # ======================================================================
+
     class InnerNode:
+        """Nodes in the inner tree of the Range tree, ordered by the point's v-value."""
         __slots__ = ['point', 'biggest', 'smallest', 'left', 'right', 'height']
 
         def __init__(self, point, left=None, right=None):
+            """
+            Initialize the InnerNode for the inner tree.
+            :param point: Transformed point and its index as a
+                ''(u, v, point_index)'' tuple.
+            :param left: Pointer to the left child InnerNode.
+            :param right: Pointer to the right child InnerNode.
+            """
             self.point = point  # (u, v, point_index)
             self.left = left
             self.right = right
@@ -89,40 +118,89 @@ class RangeTree:
                     smallest = right.smallest
                 if right.biggest > biggest:
                     biggest = right.biggest
+            # tracks the minimum (u + v, point_index) values in the subtree
             self.smallest = smallest
+
+            # tracks the maximum (u + v, point_index) values in the subtree
             self.biggest = biggest
 
     @staticmethod
     def _cmp_key(node):
+        """
+        Builds the sort key used to order InnerNode's within the secondary tree.
+
+        The point index is used as a tiebreaker so that duplicate v-values
+        never cause ambiguity.
+
+        :param node: InnerNode whose sort key is being built.
+        :return: ''(v, point_index)'' sort key tuple.
+        """
         # sort key for InnerNode: (v, point_index) -- index breaks ties
         # consistently so duplicate v-values never cause ambiguity
         return (node.point[1], node.point[2])
 
     @staticmethod
     def _h(n):
+        """
+        Reads the height of an InnerNode.
+
+        :param n: InnerNode whose height is being read.
+        :return: height of ''n'', or ''0'' if ''n'' is ''None''.
+        """
         return n.height if n else 0
 
     @staticmethod
     def _mk(point_source, left, right):
         """Build a fresh InnerNode using point_source's .point, with the given
         (possibly shared, possibly freshly-built) children. Never mutates
-        point_source itself."""
+        point_source itself.
+
+        :param point_source: The InnerNode whose point is copied into the new node.
+        :param left: Left child of the new node.
+        :param right: Right child of the new node.
+        :return: Newly built InnerNode.
+        """
         return RangeTree.InnerNode(point_source.point, left, right)
 
     @staticmethod
     def _rot_right(node):
+        """
+        Performs a right rotation on ''node'', returning the new local root.
+
+        ''node'' is never mutated; a fresh InnerNode is built for every
+        position that changes.
+
+        :param node: InnerNode to rotate.
+        :return: New local root InnerNode after the rotation.
+        """
         l = node.left
         new_node = RangeTree._mk(node, l.right, node.right)
         return RangeTree._mk(l, l.left, new_node)
 
     @staticmethod
     def _rot_left(node):
+        """
+        Performs a left rotation on ''node'', returning the new local root.
+
+        ''node'' is never mutated; a fresh InnerNode is built for every
+        position that changes.
+
+        :param node: InnerNode to rotate.
+        :return: New local root InnerNode after the rotation.
+        """
         r = node.right
         new_node = RangeTree._mk(node, node.left, r.left)
         return RangeTree._mk(r, new_node, r.right)
 
     @staticmethod
     def _rebalance(node):
+        """
+        Restores the AVL balance property at ''node'', performing a single
+        or double rotation if needed.
+
+        :param node: InnerNode to check and rebalance.
+        :return: New local root InnerNode, regardless whether a rotation occurred.
+        """
         h = RangeTree._h
         bf = h(node.left) - h(node.right)
         if bf > 1:
@@ -138,10 +216,15 @@ class RangeTree:
     @staticmethod
     def insert_into(node, new_node):
         """Insert new_node (a fresh, childless InnerNode) into the tree rooted
-        at node, returning the new root. node is never mutated."""
+        at node, returning the new root. node is never mutated.
+
+        :param node: Root of the InnerNode tree to insert into.
+        :param new_node: Fresh InnerNode being inserted.
+        :return: New root InnerNode of the tree after insertion.
+        """
         if node is None:
             if new_node.left is not None or new_node.right is not None:
-                return RangeTree.InnerNode(new_node.point)  # strip any stale children
+                return RangeTree.InnerNode(new_node.point)
             return new_node
         if RangeTree._cmp_key(new_node) < RangeTree._cmp_key(node):
             node = RangeTree._mk(node, RangeTree.insert_into(node.left, new_node), node.right)
@@ -150,39 +233,76 @@ class RangeTree:
         return RangeTree._rebalance(node)
 
     @staticmethod
-    def join_right(T1, k, T2):
+    def join_right(t1, k, t2):
+        """
+        Joins ''t1'', ''k'', and ''t2'' when ''t1'' is taller than ''t2'',
+        descending ''t1'''s right spine until a matching-height subtree is
+        found.
+
+        Used internally by ''join''; neither ''t1'' nor ''t2'' is mutated.
+
+        :param t1: Taller InnerNode tree, all keys less than ''k''.
+        :param k: InnerNode pivot joining ''t1'' and ''t2''.
+        :param t2: Shorter InnerNode tree, all keys greater than ''k''.
+        :return: Root InnerNode of the joined tree.
+        """
         h = RangeTree._h
-        if h(T1.right) <= h(T2) + 1:
-            return RangeTree._rebalance(RangeTree._mk(T1, T1.left, RangeTree._mk(k, T1.right, T2)))
-        return RangeTree._rebalance(RangeTree._mk(T1, T1.left, RangeTree.join_right(T1.right, k, T2)))
+        if h(t1.right) <= h(t2) + 1:
+            return RangeTree._rebalance(RangeTree._mk(t1, t1.left, RangeTree._mk(k, t1.right, t2)))
+        return RangeTree._rebalance(RangeTree._mk(t1, t1.left, RangeTree.join_right(t1.right, k, t2)))
 
     @staticmethod
-    def join_left(T1, k, T2):
+    def join_left(t1, k, t2):
+        """
+        Joins ''t1'', ''k'', and ''t2'' when ''t2'' is taller than ''t1'',
+        descending ''t2'''s left spine until a matching-height subtree is
+        found.
+
+        Used internally by ''join''; neither ''t1'' nor ''t2'' is mutated.
+
+        :param t1: Shorter InnerNode tree, all keys less than ''k''.
+        :param k: InnerNode pivot joining ''t1'' and ''t2''.
+        :param t2: Taller InnerNode tree, all keys greater than ''k''.
+        :return: Root InnerNode of the joined tree.
+        """
         h = RangeTree._h
-        if h(T2.left) <= h(T1) + 1:
-            return RangeTree._rebalance(RangeTree._mk(T2, RangeTree._mk(k, T1, T2.left), T2.right))
-        return RangeTree._rebalance(RangeTree._mk(T2, RangeTree.join_left(T1, k, T2.left), T2.right))
+        if h(t2.left) <= h(t1) + 1:
+            return RangeTree._rebalance(RangeTree._mk(t2, RangeTree._mk(k, t1, t2.left), t2.right))
+        return RangeTree._rebalance(RangeTree._mk(t2, RangeTree.join_left(t1, k, t2.left), t2.right))
 
     @staticmethod
-    def join(T1, k, T2):
-        """Combine T1 (all keys < k) and T2 (all keys > k) with k as pivot.
+    def join(t1, k, t2):
+        """Combine t1 (all keys < k) and t2 (all keys > k) with k as pivot.
         k's .point is used; k's own children (if any) are ignored/stripped
-        via insert_into's base case. Neither T1 nor T2 is mutated."""
-        if T1 is None:
-            return RangeTree.insert_into(T2, k)
-        if T2 is None:
-            return RangeTree.insert_into(T1, k)
-        h1, h2 = RangeTree._h(T1), RangeTree._h(T2)
+        via insert_into's base case. Neither t1 nor t2 is mutated.
+
+        :param t1: InnerNode tree with keys less than ''k''.
+        :param k: InnerNode pivot joining ''t1'' and ''t2''.
+        :param t2: InnerNode tree with keys greater than ''k''.
+        :return: Root InnerNode of the joined tree.
+        """
+        if t1 is None:
+            return RangeTree.insert_into(t2, k)
+        if t2 is None:
+            return RangeTree.insert_into(t1, k)
+        h1, h2 = RangeTree._h(t1), RangeTree._h(t2)
         if h1 > h2 + 1:
-            return RangeTree.join_right(T1, k, T2)
+            return RangeTree.join_right(t1, k, t2)
         elif h2 > h1 + 1:
-            return RangeTree.join_left(T1, k, T2)
+            return RangeTree.join_left(t1, k, t2)
         else:
-            return RangeTree._mk(k, T1, T2)
+            return RangeTree._mk(k, t1, t2)
 
     @staticmethod
     def split(T, key):
-        """Split T into (< key, node with key or None, > key). T is not mutated."""
+        """Split T into (< key, node with key or None, > key). T is not mutated.
+
+        :param T: Root InnerNode of the tree to split.
+        :param key: ''(v, point_index)'' key to split on.
+        :return: ''(left, found, right)'' tuple, where ''left'' holds keys
+            less than ''key'', ''right'' holds keys greater than ''key'', and
+            ''found'' is the InnerNode matching ''key'', or ''None'' if absent.
+        """
         if T is None:
             return None, None, None
         if key < RangeTree._cmp_key(T):
@@ -195,26 +315,35 @@ class RangeTree:
             return T.left, T, T.right
 
     @staticmethod
-    def union(T1, T2):
-        """Merge two InnerNode trees. Neither T1 nor T2 is mutated -- both
+    def union(t1, t2):
+        """Merge two InnerNode trees. Neither t1 nor t2 is mutated -- both
         remain fully valid, independent trees after this call, even though
-        the result may share (not copy) most of their nodes."""
-        if T1 is None:
-            return T2
-        if T2 is None:
-            return T1
-        L, found, R = RangeTree.split(T2, RangeTree._cmp_key(T1))
-        return RangeTree.join(RangeTree.union(T1.left, L), T1, RangeTree.union(T1.right, R))
+        the result may share (not copy) most of their nodes.
 
-    # ======================================================================
-    # PRIMARY TREE ROTATION CORE -- shared by Node's own insertion backprop.
-    # This part IS mutating (fine: only one live primary tree exists).
-    # rotate_hook fires only on the 1-3 nodes actually touched by a rotation
-    # (used for Node.tree_merger). always_hook fires on every ancestor
-    # visited during backprop (not used for Node; kept for generality).
-    # ======================================================================
+        :param t1: First InnerNode tree to merge.
+        :param t2: Second InnerNode tree to merge.
+        :return: Root InnerNode of the merged tree.
+        """
+        if t1 is None:
+            return t2
+        if t2 is None:
+            return t1
+        L, found, R = RangeTree.split(t2, RangeTree._cmp_key(t1))
+        return RangeTree.join(RangeTree.union(t1.left, L), t1, RangeTree.union(t1.right, R))
+
     @staticmethod
     def _p_attach(node, left, right, parent, hook=None):
+        """
+        Attaches ''left'' and ''right'' as the children of ''node'' and
+        ''node'' as the child of ''parent'', updating ''node'''s height.
+
+        :param node: Node whose children are being set.
+        :param left: New left child of ''node''.
+        :param right: New right child of ''node''.
+        :param parent: New parent of ''node''.
+        :param hook: Optional callback invoked with ''node'' after attaching.
+        :return: ''node'', after being updated.
+        """
         node.left = left
         node.right = right
         node.parent = parent
@@ -229,6 +358,15 @@ class RangeTree:
 
     @staticmethod
     def _p_rotate_right(node, parent, hook=None):
+        """
+        Performs a right rotation on ''node'' in the primary tree, returning
+        the new local root.
+
+        :param node: Node to rotate.
+        :param parent: Parent that the new local root should be attached to.
+        :param hook: Optional callback invoked on each Node touched by the rotation.
+        :return: New local root Node after the rotation.
+        """
         l = node.left
         b = l.right
         RangeTree._p_attach(node, b, node.right, l, hook)
@@ -237,6 +375,15 @@ class RangeTree:
 
     @staticmethod
     def _p_rotate_left(node, parent, hook=None):
+        """
+        Performs a left rotation on ''node'' in the primary tree, returning
+        the new local root.
+
+        :param node: Node to rotate.
+        :param parent: Parent that the new local root should be attached to.
+        :param hook: Optional callback invoked on each Node touched by the rotation.
+        :return: New local root Node after the rotation.
+        """
         r = node.right
         b = r.left
         RangeTree._p_attach(node, node.left, b, r, hook)
@@ -245,6 +392,15 @@ class RangeTree:
 
     @staticmethod
     def _p_do_rotation(node, parent, hook=None):
+        """
+        Determines whether ''node'' needs a single or double rotation and
+        performs it, returning the new local root.
+
+        :param node: Unbalanced Node to rotate.
+        :param parent: Parent that the new local root should be attached to.
+        :param hook: Optional callback invoked on each Node touched by the rotation.
+        :return: New local root Node after the rotation.
+        """
         bf = RangeTree._h(node.left) - RangeTree._h(node.right)
         if bf > 1:
             if RangeTree._h(node.left.left) >= RangeTree._h(node.left.right):
@@ -259,6 +415,18 @@ class RangeTree:
 
     @staticmethod
     def backprop_insert(node, child, root, always_hook=None, rotate_hook=None):
+        """
+        Walks upward from ''node'' toward the root, updating heights and
+        performing rotations as needed to restore the AVL balance property.
+
+        :param node: Node to begin propagating upward from.
+        :param child: Child Node that ''node'' was just reached through.
+        :param root: Current root of the primary tree.
+        :param always_hook: Optional callback invoked on every Node visited.
+        :param rotate_hook: Optional callback invoked on each Node touched by
+            a rotation.
+        :return: The (possibly new) root Node of the primary tree.
+        """
         if node is None:
             return root
         old_height = node.height
@@ -281,11 +449,15 @@ class RangeTree:
             return root
         return RangeTree.backprop_insert(node.parent, node, root, always_hook, rotate_hook)
 
-    # ======================================================================
-    # PUBLIC API
-    # ======================================================================
+
     def add_node(self, normal_point, point_index):
-        trans_point = transform(normal_point, self.theta, self.cone_i)
+        """
+        Inserts a new point into the range tree.
+
+        :param normal_point: Original cartesian coordinate given ''(x, y)''.
+        :param point_index: Index identifying this point.
+        """
+        trans_point = transform(normal_point, self.radian, self.cone_i)
         point = (trans_point[0], trans_point[1], point_index)
 
         if self.tree is None:
@@ -294,9 +466,6 @@ class RangeTree:
 
         node = self.tree
         while True:
-            # FUNCTIONAL insert -- never mutates node.secondary's existing nodes,
-            # so this is always safe even if node.secondary shares structure
-            # with some ancestor's already-computed merged secondary.
             node.secondary = RangeTree.insert_into(node.secondary, RangeTree.InnerNode(point))
 
             if point[0] >= node.point[0]:
@@ -321,7 +490,18 @@ class RangeTree:
                     return
 
     def query(self, query_point):
-        u0, v0 = transform(query_point, self.theta, self.cone_i)
+        """
+        Finds the nearest point ahead of ''query_point'' in the cone's main
+        direction, and the nearest point behind it in the opposite direction.
+
+        :param query_point: Original cartesian coordinate given ''(x, y)''.
+        :return: A ''(smallest, biggest)'' tuple. ''smallest'' is the
+            ''(distance, point_index)'' of the nearest point ahead, or
+            ''None'' if none exists; ''biggest'' is the
+            ''(distance, point_index)'' of the nearest point behind, or
+            ''None'' if none exists.
+        """
+        u0, v0 = transform(query_point, self.radian, self.cone_i)
         smallest = None
         biggest = None
 
@@ -329,6 +509,13 @@ class RangeTree:
         lesser = lambda a, b: a < b
 
         def recurse(node):
+            """
+            Walks a single path down the primary tree toward ''u0'',
+            updating ''smallest'' and ''biggest'' with the nearest
+            qualifying point found on each side of the cone.
+
+            :param node: Node currently being visited.
+            """
             nonlocal smallest, biggest
             if node is None:
                 return
@@ -353,6 +540,19 @@ class RangeTree:
                     recurse(node.left)
 
         def inner_recurse(node, condition):
+            """
+            Finds the smallest and largest ''(u + v, point_index)'' values
+            within ''node'''s secondary tree among points satisfying
+            ''condition'' on ''v0'', using canonical decomposition to avoid
+            visiting every point.
+
+            :param node: InnerNode currently being visited.
+            :param condition: Either ''greater'' or ''lesser'', determining
+                which side of ''v0'' qualifies.
+            :return: ''(best_small, best_big)'' tuple of the best
+                qualifying ''(u + v, point_index)'' values found, or ''None''
+                for either if none exist.
+            """
             if node is None:
                 return None, None
             best_small = None

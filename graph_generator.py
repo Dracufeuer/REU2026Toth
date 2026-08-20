@@ -27,7 +27,7 @@ def choose_num():
 def main():
 
     while True:
-        user_input = input("Enter 1 for 1D or 2 for 2D: ")
+        user_input = input("Enter 1 for 1D or 2 for 2D (n to exit): ")
         if user_input == "1":
             oned_list(generate_unique_1d(choose_num()))
         elif user_input == "2":
