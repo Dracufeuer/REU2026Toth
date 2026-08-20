@@ -93,7 +93,7 @@ class GraphPlotter:
         fig_h = min(max(y_range * inches_per_unit, 4), max_figsize[1])
 
         fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-        ax.scatter(xs, ys, s=60, c=colors, zorder=2, edgecolors='black', linewidths=0.4)
+        ax.scatter(xs, ys, s=60, c=colors, zorder=2, edgecolors='black', linewidths=0.4, clip_on=False)
 
         edges = list(G.edges())
         segments = []
@@ -171,7 +171,7 @@ class GraphPlotter:
                     txt.remove()
                 self._label_texts = [
                     self.ax.text(p[0], p[1], str(i), fontsize=8,
-                                 ha='center', va='center', zorder=3)
+                                 ha='center', va='center', zorder=3, clip_on=True)
                     for i, p in enumerate(nodes, start=1)
                 ]
             else:
